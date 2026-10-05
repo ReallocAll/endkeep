@@ -324,7 +324,7 @@ wheels = [
 
 [[package]]
 name = "endstone"
-version = "0.11.2"
+version = "0.11.12"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -343,21 +343,20 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "rich" },
-    { name = "sentry-crashpad" },
     { name = "tomlkit" },
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/af/a60a79cc4f4832e013ba2d4ed9b6e637583f21e9e4bfa159fef2102c4bec/endstone-0.11.2-cp310-cp310-manylinux_2_31_x86_64.whl", hash = "sha256:1922d90f20fce71265a3a33a71b5da82a6e94345a83e95e81075f6c934837bc7", size = 49701237, upload-time = "2026-03-02T21:01:21.914Z" },
-    { url = "https://files.pythonhosted.org/packages/96/f6/f2f6e54b42232454aa176e55aead1dc0c48442849fbb7effe86fb96dbf5b/endstone-0.11.2-cp310-cp310-win_amd64.whl", hash = "sha256:5b7d0fbb5b8b4d0d34c3dcd1cfb61a28dae761f57fc1a2013eea2b13f39c2168", size = 34697148, upload-time = "2026-03-02T21:01:26.069Z" },
-    { url = "https://files.pythonhosted.org/packages/2a/f0/476de1c417b225352ffeb9d30d775bdbaf24b8d1d6e42d8092876569842c/endstone-0.11.2-cp311-cp311-manylinux_2_31_x86_64.whl", hash = "sha256:58a9dd478a924fbe40595c737a90758b48d2e4ecfde9407004e180e696cd09c4", size = 49859483, upload-time = "2026-03-02T21:01:29.327Z" },
-    { url = "https://files.pythonhosted.org/packages/80/e2/47fdab20b76ac3081e2a390aa84e3f88e174482d8aba194498705f080b4e/endstone-0.11.2-cp311-cp311-win_amd64.whl", hash = "sha256:47883000439f8cecbd3b4074f732cf34b728eca9785d296435c98b506c8640ba", size = 34716148, upload-time = "2026-03-02T21:01:33.212Z" },
-    { url = "https://files.pythonhosted.org/packages/e8/ae/df65ad31e5125fdf5ebbbd8abd9158d7a604cfc85cd5f78b64f9eabbd60f/endstone-0.11.2-cp312-cp312-manylinux_2_31_x86_64.whl", hash = "sha256:5ec6d061d5542e60ff32ad2d0c2180e601f38531a45335f77f9bb0ae52ce5909", size = 50192294, upload-time = "2026-03-02T21:01:36.129Z" },
-    { url = "https://files.pythonhosted.org/packages/a8/d3/c0f63cc3d9c1501ab3f2cfad195165c9340505510a961620c1c74cc41d9c/endstone-0.11.2-cp312-cp312-win_amd64.whl", hash = "sha256:ac64954909567f6568408fa26657ac03b5ea6615ffdaddea44982ed8276e38bc", size = 34727219, upload-time = "2026-03-02T21:01:39.317Z" },
-    { url = "https://files.pythonhosted.org/packages/d3/23/2f2bf4852dc39c5a61296d99291437e4c28bbb4449b601f670b4216066cd/endstone-0.11.2-cp313-cp313-manylinux_2_31_x86_64.whl", hash = "sha256:0897be5407570b9209da47091b479ec37df8da2f7c7d9f61daebcb509d14bf7f", size = 50184735, upload-time = "2026-03-02T21:01:42.482Z" },
-    { url = "https://files.pythonhosted.org/packages/cc/fe/c9aa10f0f51cebcabcd074d09b2bd4da35eebf2fa3ebc5c808a8fa5b91eb/endstone-0.11.2-cp313-cp313-win_amd64.whl", hash = "sha256:491620849f0d3407d24cc4e6d628a4dd5f0b5a28b23fb1f30296f0f28c4dd6a2", size = 34903144, upload-time = "2026-03-02T21:01:46.936Z" },
-    { url = "https://files.pythonhosted.org/packages/8e/b2/526d6775a8d097dbef90e6253b3ae07f6609c1e5359258ef9f8f7639bdcc/endstone-0.11.2-cp314-cp314-manylinux_2_31_x86_64.whl", hash = "sha256:5d0408fd01ba9ecdf42c351e8afa762dce6db3fdf685b6712a4c162e7218e5eb", size = 50157489, upload-time = "2026-03-02T21:01:55.948Z" },
-    { url = "https://files.pythonhosted.org/packages/7d/4d/891a84111519d07aec640141e75f16d3e3aff51be89868133dc77cd6a0cb/endstone-0.11.2-cp314-cp314-win_amd64.whl", hash = "sha256:d282a3d154b8e9c74cf8f89feb40905a58761e65ba5c91e54e0e83bb7d9b2362", size = 35269908, upload-time = "2026-03-02T21:01:59.69Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/a0/c24a741bc9c3a56b99dcda02540d66337849fd2df915f7e70993fb07ad69/endstone-0.11.12-cp310-cp310-manylinux_2_31_x86_64.whl", hash = "sha256:ec2136e8a851e5fb497cb962ca749725241ce7dd3031dab064e1cb9381fd5e46", size = 45345763, upload-time = "2026-09-20T21:42:42.068Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/66/4860d25777a4ad244067979795c50259d24214192cbf5bd5f45565027145/endstone-0.11.12-cp310-cp310-win_amd64.whl", hash = "sha256:c637bb370a7ff277af4ac10b7e5f157b9cd8856c8eb9a425862e1832015cb68a", size = 20053072, upload-time = "2026-09-20T21:42:45.609Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/d2/c9ba2cdeb8b04eccdedbd47d4d46313ed5c0e5c41db3da267960604beeff/endstone-0.11.12-cp311-cp311-manylinux_2_31_x86_64.whl", hash = "sha256:00580d5f616e0ea8b9510c1ede1fdd2af4d11a74186bea8231d9cd8cad8d3e4b", size = 45501448, upload-time = "2026-09-20T21:42:50.43Z" },
+    { url = "https://files.pythonhosted.org/packages/62/7a/a67c50bb7de8197b06650838c349c88a7f30c6aff372896a601292d086d3/endstone-0.11.12-cp311-cp311-win_amd64.whl", hash = "sha256:1c81c3828d0a1c0c839276dc4f09192c09dfeb7ca111b8bb446f04e77f93691f", size = 20077054, upload-time = "2026-09-20T21:42:54.044Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/f4/4162929fdd5222b8d59524d6ac036bd3b7f52c7e65ec2fa41e3c4ed998b8/endstone-0.11.12-cp312-cp312-manylinux_2_31_x86_64.whl", hash = "sha256:fd20dea64a7e1459af532639322ec7ab2e1c60ce0b6d8c5bb29fc7f885a97bce", size = 45828419, upload-time = "2026-09-20T21:42:58.678Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/0a/853307e86b140c4ad6fc0cfbe4aa8d60eeca3e7b189df0522fc33ea51a5d/endstone-0.11.12-cp312-cp312-win_amd64.whl", hash = "sha256:b57421633ad27142858f02ce0eccbdea8653383b19e526775af8496e1e6a8a6d", size = 19911947, upload-time = "2026-09-20T21:43:02.217Z" },
+    { url = "https://files.pythonhosted.org/packages/82/b4/ed183de0dd87a02c849d832888153b7abe244368c2ab026560c289342fab/endstone-0.11.12-cp313-cp313-manylinux_2_31_x86_64.whl", hash = "sha256:af2815818269bc04aad24dd48e44a62d1318f3551474987179fc91e8504b392c", size = 45832248, upload-time = "2026-09-20T21:43:07.007Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/fc/882b1b322debb3454aee9f517895180492881090f8aea0fb58d0747e269b/endstone-0.11.12-cp313-cp313-win_amd64.whl", hash = "sha256:d965e0f84e48564064fc92fe9206b46578c838f143239951c5ba1477335a30c5", size = 19911905, upload-time = "2026-09-20T21:43:10.338Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/5e/e246643b629de99efd5ad9a8ab5c09609c33e2417077cf54bfb8b51edc78/endstone-0.11.12-cp314-cp314-manylinux_2_31_x86_64.whl", hash = "sha256:f3622cbb7d63588c33f1e7b210eb3b5d630c7502f1801864b46fa2c35ddba6a1", size = 45794013, upload-time = "2026-09-20T21:43:14.66Z" },
+    { url = "https://files.pythonhosted.org/packages/74/13/048ae1c92789fa7981052fe46be925a556d6bb108c28702c5c2a52c0a7c3/endstone-0.11.12-cp314-cp314-win_amd64.whl", hash = "sha256:1255ef9af670cf1c7095d1e6708cebc6a224b15c63288bd001fd2f07a5afbfa7", size = 20128792, upload-time = "2026-09-20T21:43:18.204Z" },
 ]
 
 [[package]]
@@ -1143,23 +1142,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/26/6b/8786ba5736562220d588a2f6653e6c17e90c59ced34a2d7b512ef8956103/ruff-0.15.7-py3-none-win32.whl", hash = "sha256:6d39e2d3505b082323352f733599f28169d12e891f7dd407f2d4f54b4c2886de", size = 10582538, upload-time = "2026-03-19T16:26:15.992Z" },
     { url = "https://files.pythonhosted.org/packages/2b/e9/346d4d3fffc6871125e877dae8d9a1966b254fbd92a50f8561078b88b099/ruff-0.15.7-py3-none-win_amd64.whl", hash = "sha256:4d53d712ddebcd7dace1bc395367aec12c057aacfe9adbb6d832302575f4d3a1", size = 11755839, upload-time = "2026-03-19T16:26:19.897Z" },
     { url = "https://files.pythonhosted.org/packages/8f/e8/726643a3ea68c727da31570bde48c7a10f1aa60eddd628d94078fec586ff/ruff-0.15.7-py3-none-win_arm64.whl", hash = "sha256:18e8d73f1c3fdf27931497972250340f92e8c861722161a9caeb89a58ead6ed2", size = 11023304, upload-time = "2026-03-19T16:26:51.669Z" },
-]
-
-[[package]]
-name = "sentry-crashpad"
-version = "0.7.17.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9d/aa/631e76d2262d6bdce3a272cfa64a9fb72ebd2a664c7f3bb18bbb5fe61085/sentry_crashpad-0.7.17.1.tar.gz", hash = "sha256:fb59325b99437c17af26c11a9aaaa0c1e71ddda793cfff728eeced96490a8752", size = 10060, upload-time = "2025-03-02T18:56:06.988Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/8e/a385c18027884c7647f59854e5a0d18726dc6058dd2751066d2317e8e8e8/sentry_crashpad-0.7.17.1-py2.py3-none-macosx_10_9_x86_64.whl", hash = "sha256:9a3ccdf40234ca9e61b0e7e4d5568b32e37fb8588e2ee7944b5b9630ab1244d1", size = 378585, upload-time = "2025-03-02T18:55:51.48Z" },
-    { url = "https://files.pythonhosted.org/packages/99/ef/c4e7b415b2d7e24174d28ed40f5a326395de00d449ec768aebca573d7a47/sentry_crashpad-0.7.17.1-py2.py3-none-macosx_11_0_arm64.whl", hash = "sha256:69fb7be85754138579baa07355b97577b841f248cdaabb6c1cc3cf532d5ebdd0", size = 343641, upload-time = "2025-03-02T18:55:53.271Z" },
-    { url = "https://files.pythonhosted.org/packages/a2/3b/5bd866dd1b228bbd2cc21f8d318c0fba835e4e09f39148f9121c0d3d7d76/sentry_crashpad-0.7.17.1-py2.py3-none-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:01c1dc37213195e9f0a3d8aa11091a14c8aba93900e0ef3adb67d2f0f389284e", size = 442418, upload-time = "2025-03-02T18:55:55.203Z" },
-    { url = "https://files.pythonhosted.org/packages/7e/04/850a657bdc21b662c0f18f2e45477619dda1e35fc5e1e1b86b0c82ec6866/sentry_crashpad-0.7.17.1-py2.py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0f13af8d7c46fadab04fc4ac080b74ab2cc8e9d16249f8bb3e80ef2ae6ae16eb", size = 492750, upload-time = "2025-03-02T18:55:56.518Z" },
-    { url = "https://files.pythonhosted.org/packages/34/6c/8c5c6b1355ceecd3c45eff8c610996bbf5645317cc48a880934ee0199ffb/sentry_crashpad-0.7.17.1-py2.py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:025be2457fe6049fc13f2b545480fc2e7c8620ffccf736553ca2aabe7d77b593", size = 1415964, upload-time = "2025-03-02T18:55:58.102Z" },
-    { url = "https://files.pythonhosted.org/packages/e6/55/0c106fe8fee76c9a996a383a181b1ded939110d15f325adb8fb13f708407/sentry_crashpad-0.7.17.1-py2.py3-none-musllinux_1_2_i686.whl", hash = "sha256:1b9708ebf2818c843730e861867b45d95d5ddbdfc3a5645bca37b26457264f04", size = 1635117, upload-time = "2025-03-02T18:56:00.615Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/fb/6f23fbcedb95eb37532936c77c3937bd2fc21ad57d45989f2af4e40c7973/sentry_crashpad-0.7.17.1-py2.py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:4f11b628d580b4584543e0e37a8d91fb6e420e086e7ae0727d50e39fbdfd4b04", size = 1502094, upload-time = "2025-03-02T18:56:02.504Z" },
-    { url = "https://files.pythonhosted.org/packages/df/b2/859bff54a5caa0f7acc6870566f9f3e55383ecdb446f487bfe3849530f42/sentry_crashpad-0.7.17.1-py2.py3-none-win32.whl", hash = "sha256:e0a937ec230b0429551c3eea9938a01c983e7fa9ebe3e2cdc3aceba0ecb54a88", size = 278811, upload-time = "2025-03-02T18:56:04.499Z" },
-    { url = "https://files.pythonhosted.org/packages/89/25/f677c73abe5d82da4fb2488ff1678a31f5b889a1b867a4365325675bc86a/sentry_crashpad-0.7.17.1-py2.py3-none-win_amd64.whl", hash = "sha256:1972ba9015ee41fdf4f6f24473a9c7ee47fd0c3c26e5de5ddbfa1e5f18fd5650", size = 278814, upload-time = "2025-03-02T18:56:05.801Z" },
 ]
 
 [[package]]
