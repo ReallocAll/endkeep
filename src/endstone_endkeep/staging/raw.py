@@ -55,7 +55,12 @@ class RawSnapshotStore:
         captured = now or datetime.now()
         snapshot_id = self.allocate_snapshot_id(captured)
         incoming = self.incoming_root / snapshot_id
-        result = stage_manifest(self.source_root, incoming, manifest, cancel=cancel)
+        try:
+            result = stage_manifest(self.source_root, incoming, manifest, cancel=cancel)
+        except Exception:
+            if incoming.exists():
+                shutil.rmtree(incoming, ignore_errors=True)
+            raise
         return StagedRawSnapshot(
             snapshot_id=snapshot_id,
             incoming_path=incoming,
