@@ -211,7 +211,14 @@ class EndKeepPlugin(Plugin):
             return
 
         repository = self._repository
+        capture = self._capture
         if repository is None or event.maintenance_mode is None:
+            return
+        if (capture is not None and capture.busy) or self._pending_capture:
+            self.logger.error(
+                f"REPOSITORY FAILURE: scheduled {event.maintenance_mode} maintenance "
+                f"at {event.configured_time} skipped because capture is active or pending"
+            )
             return
         if not repository.start_maintenance(event.maintenance_mode):
             self.logger.error(
