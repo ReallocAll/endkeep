@@ -2,31 +2,54 @@ name: Build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main, "feat/**", "fix/**", "ci/**"]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
+  test:
+    name: Lint, test & package
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
+          enable-cache: true
 
       - name: Install
         run: uv sync --extra dev
 
       - name: Lint
-        run: uv run ruff check src/
+        run: uv run ruff check src tests
+
+      - name: Check formatting
+        run: uv run ruff format --check src tests
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Build wheel
+        run: uv build
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: endkeep-wheel-${{ github.run_id }}
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 14
