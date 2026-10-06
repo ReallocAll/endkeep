@@ -12,9 +12,19 @@ def iter_visible_state(db_path: Path) -> Generator[Iterator[tuple[bytes, bytes]]
     from amulet.leveldb import LevelDB
 
     db = LevelDB(str(db_path), False)
+
+    def iterate() -> Iterator[tuple[bytes, bytes]]:
+        iterator = db.create_iterator()
+        iterator.seek_to_first()
+        while iterator.valid():
+            yield iterator.key(), iterator.value()
+            iterator.next()
+
+    state = iterate()
     try:
-        yield db.iterate()
+        yield state
     finally:
+        state.close()
         db.close()
 
 
