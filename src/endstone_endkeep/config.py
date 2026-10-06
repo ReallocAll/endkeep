@@ -121,6 +121,11 @@ class EndKeepConfig:
         if not isinstance(compression_level, int) or isinstance(compression_level, bool) or not -7 <= compression_level <= 22:
             raise ConfigError("logical.compression_level must be an integer between -7 and 22")
 
+        keep_days = _positive_int(retention, "keep_days", allow_zero=True)
+        keep_last = _positive_int(retention, "keep_last", allow_zero=True)
+        if keep_days == 0 and keep_last == 0:
+            raise ConfigError("retention.keep_days and retention.keep_last cannot both be zero")
+
         return cls(
             enabled=enabled,
             capture=CaptureConfig(_string_list(capture, "times")),
@@ -134,8 +139,8 @@ class EndKeepConfig:
                 compression_threads=_positive_int(logical, "compression_threads"),
             ),
             retention=RetentionConfig(
-                keep_days=_positive_int(retention, "keep_days", allow_zero=True),
-                keep_last=_positive_int(retention, "keep_last", allow_zero=True),
+                keep_days=keep_days,
+                keep_last=keep_last,
             ),
             storage=StorageConfig(
                 path=Path(storage_path),
