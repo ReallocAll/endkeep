@@ -146,8 +146,12 @@ class ObjectStore:
         self.fault_hook = fault_hook or (lambda _point: None)
 
     def prepare(self) -> None:
+        objects_created = not self.objects_root.exists()
+        incoming_created = not self.incoming_root.exists()
         self.objects_root.mkdir(parents=True, exist_ok=True)
         self.incoming_root.mkdir(parents=True, exist_ok=True)
+        if objects_created or incoming_created:
+            self._fsync_directory(self.repo_root)
 
     def create(self, builder: Callable[[BinaryIO], _T]) -> tuple[ObjectMetadata, _T]:
         """Stream one canonical logical object, verify it, then publish it immutably."""

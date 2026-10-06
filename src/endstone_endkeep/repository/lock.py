@@ -16,7 +16,10 @@ class RepositoryLock:
         self._fd: int | None = None
 
     def __enter__(self) -> RepositoryLock:
+        repo_created = not self.repo_root.exists()
         self.repo_root.mkdir(parents=True, exist_ok=True)
+        if repo_created:
+            self._fsync_directory(self.repo_root.parent)
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
             if os.name == "posix":
@@ -42,6 +45,20 @@ class RepositoryLock:
             raise
         self._fd = fd
         return self
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        try:
+            fd = os.open(path, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            try:
+                os.fsync(fd)
+            except OSError:
+                pass
+        finally:
+            os.close(fd)
 
     def __exit__(self, exc_type, exc, tb) -> None:
         fd = self._fd

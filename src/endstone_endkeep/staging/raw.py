@@ -32,7 +32,14 @@ class RawSnapshotStore:
         self.incoming_root = self.raw_root / ".incoming"
 
     def prepare(self) -> None:
+        raw_created = not self.raw_root.exists()
+        incoming_created = not self.incoming_root.exists()
         self.incoming_root.mkdir(parents=True, exist_ok=True)
+        if raw_created:
+            self._fsync_directory(self.storage_root)
+            self._fsync_directory(self.storage_root.parent)
+        if incoming_created:
+            self._fsync_directory(self.raw_root)
 
     def allocate_snapshot_id(self, now: datetime | None = None) -> str:
         current = now or datetime.now()

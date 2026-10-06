@@ -112,7 +112,11 @@ class RepositoryService:
 
     def close(self) -> None:
         self._closed = True
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        # Repository mutations are serialized crash-safe transactions. Once a
+        # heavy maintenance job has started, finish it before plugin teardown so
+        # a reload cannot start a second runtime while the old writer still owns
+        # repo/LOCK.
+        self._executor.shutdown(wait=True, cancel_futures=False)
 
     def _run_pre_capture(self) -> RepositoryJobResult:
         with RepositoryLock(self.repo_root):

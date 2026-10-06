@@ -114,7 +114,10 @@ class CaptureCoordinator:
                 self._plugin.logger.critical(
                     "CAPTURE FAILURE: plugin disabled while BDS save was held and save resume failed"
                 )
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        # Do not let an old capture worker race a freshly reloaded plugin's
+        # startup cleanup. Cancellation is checked between bounded copy chunks;
+        # publication, if already unheld, is allowed to finish before teardown.
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
     def _pump_query(self) -> None:
         now = time.monotonic()
