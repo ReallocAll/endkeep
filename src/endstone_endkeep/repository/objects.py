@@ -176,8 +176,7 @@ class ObjectStore:
                 existing = self._inspect_path(target)
                 if existing[0] != metadata.logical_sha256 or existing[2] != metadata.logical_bytes:
                     raise ObjectStoreError(
-                        "logical object path contains different logical content; "
-                        "refusing to overwrite immutable object"
+                        "logical object path contains different logical content; refusing to overwrite immutable object"
                     )
                 # Logical SHA256 is the object identity. A repository may outlive a
                 # zstd upgrade or compression-setting change, so byte-identical
