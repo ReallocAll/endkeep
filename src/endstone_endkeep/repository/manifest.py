@@ -19,6 +19,7 @@ class ManifestError(RuntimeError):
 @dataclass(frozen=True)
 class SnapshotNode:
     snapshot: str
+    world_name: str
     type: NodeType
     object: ObjectMetadata
     sidecar: ObjectMetadata
@@ -30,6 +31,7 @@ class SnapshotNode:
     def to_dict(self) -> dict:
         return {
             "snapshot": self.snapshot,
+            "world_name": self.world_name,
             "type": self.type,
             "object": self.object.to_dict(),
             "sidecar": self.sidecar.to_dict(),
@@ -46,6 +48,7 @@ class SnapshotNode:
             raise ManifestError(f"invalid node type: {node_type!r}")
         return cls(
             snapshot=str(raw["snapshot"]),
+            world_name=str(raw["world_name"]),
             type=node_type,  # type: ignore[arg-type]
             object=ObjectMetadata.from_dict(raw["object"]),
             sidecar=ObjectMetadata.from_dict(raw["sidecar"]),
@@ -79,6 +82,9 @@ class RepositoryManifest:
         snapshots = [node.snapshot for node in self.chain]
         if len(set(snapshots)) != len(snapshots):
             raise ManifestError("repository chain contains duplicate snapshot IDs")
+        world_names = {node.world_name for node in self.chain}
+        if "" in world_names or len(world_names) != 1:
+            raise ManifestError("repository chain must contain exactly one non-empty world_name")
 
     def to_dict(self) -> dict:
         return {
