@@ -1,0 +1,31 @@
+enabled = true
+
+[capture]
+times = [
+    "12:00",
+    "16:30",
+    "20:30",
+    "23:45",
+]
+
+[maintenance]
+times = [
+    "06:00",
+    "18:30",
+]
+
+[raw]
+max_pending = 18
+max_age_days = 3
+
+[logical]
+compression_level = 6
+compression_threads = 4
+
+[retention]
+keep_days = 7
+keep_last = 28
+
+[storage]
+path = "backups"
+min_free_space_gib = 5

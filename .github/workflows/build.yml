@@ -2,31 +2,94 @@ name: Build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main, "feat/**", "fix/**", "ci/**"]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
+  test:
+    name: Lint, test & package
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
+          enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev
+        run: |
+          uv venv .venv --python 3.14
+          .venv/bin/python -m ensurepip --upgrade
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev]"
 
       - name: Lint
-        run: uv run ruff check src/
+        run: .venv/bin/ruff check src tests tools
+
+      - name: Check formatting
+        run: .venv/bin/ruff format --check src tests tools
+
+      - name: Test
+        run: .venv/bin/python -m pytest
+
+      - name: Build release-shaped artifacts
+        run: |
+          .venv/bin/python -m build
+          .venv/bin/python tools/build_offline.py --output dist/endkeep-offline.py
+          cp requirements-offline.txt dist/requirements-offline.txt
+          (
+            cd dist
+            sha256sum *.whl endkeep-offline.py requirements-offline.txt > SHA256SUMS
+          )
+
+      - name: Wheel smoke install
+        run: |
+          uv venv /tmp/endkeep-wheel-smoke --python 3.14
+          /tmp/endkeep-wheel-smoke/bin/python -m ensurepip --upgrade
+          /tmp/endkeep-wheel-smoke/bin/python -m pip install --no-deps dist/*.whl
+          /tmp/endkeep-wheel-smoke/bin/python - <<'PY'
+          from importlib.metadata import metadata
+          package = metadata("endstone-endkeep")
+          assert package["Name"] == "endstone-endkeep"
+          print(package["Name"], package["Version"])
+          PY
+
+      - name: Standalone offline smoke
+        run: |
+          .venv/bin/python tests/standalone_fixture.py /tmp/endkeep-fixture
+          uv venv /tmp/endkeep-offline-smoke --python 3.14
+          /tmp/endkeep-offline-smoke/bin/python -m ensurepip --upgrade
+          /tmp/endkeep-offline-smoke/bin/python -m pip install -r requirements-offline.txt
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --help
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo list
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo restore /tmp/endkeep-restored
+          test -f /tmp/endkeep-restored/level.dat
+          test -d /tmp/endkeep-restored/db
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: endkeep-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            dist/endkeep-offline.py
+            dist/requirements-offline.txt
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
