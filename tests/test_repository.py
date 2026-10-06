@@ -19,6 +19,7 @@ def test_object_store_and_manifest_commit(tmp_path: Path) -> None:
 
     node = SnapshotNode(
         snapshot="20261006-120000",
+        world_name="level",
         type="base",
         object=metadata,
         sidecar=metadata,
