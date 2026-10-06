@@ -28,3 +28,22 @@ def test_sidecar_roundtrip(tmp_path: Path) -> None:
     assert restored == stats
     assert (destination / "level/level.dat").read_bytes() == b"level-data"
     assert (destination / "level/levelname.txt").read_bytes() == b"world"
+
+
+def test_sidecar_restore_strips_world_prefix(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    (raw / "level").mkdir(parents=True)
+    (raw / "level" / "level.dat").write_bytes(b"abc")
+    archive = BytesIO()
+    write_sidecar(
+        archive,
+        raw,
+        (SnapshotEntry(PurePosixPath("level/level.dat"), 3),),
+    )
+
+    destination = tmp_path / "world"
+    destination.mkdir()
+    archive.seek(0)
+    extract_sidecar(archive, destination, strip_prefix="level")
+    assert (destination / "level.dat").read_bytes() == b"abc"
+    assert not (destination / "level").exists()
