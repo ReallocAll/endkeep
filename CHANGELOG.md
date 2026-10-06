@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- Keep save-query retry policy internal and retry transient misses every 10 server ticks instead of exposing a retry-count setting.
+
 ## [0.1.3] - 2026-10-06
 
 ### Fixed
