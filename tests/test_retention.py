@@ -26,8 +26,7 @@ def _node(index: int, captured_at: datetime, node_type: str) -> SnapshotNode:
 def test_retention_is_union_of_age_and_last_n() -> None:
     now = datetime(2026, 10, 6, 12, tzinfo=UTC)
     chain = tuple(
-        _node(index, now - timedelta(days=9 - index), "base" if index == 0 else "delta")
-        for index in range(10)
+        _node(index, now - timedelta(days=9 - index), "base" if index == 0 else "delta") for index in range(10)
     )
     manifest = RepositoryManifest(1, chain)
 
