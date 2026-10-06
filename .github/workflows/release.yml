@@ -106,15 +106,26 @@ jobs:
 
       - name: Tag prepared release commit
         if: steps.meta.outputs.tag_needed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
-          if git rev-parse --verify --quiet "refs/tags/v$VERSION"; then
-            echo "::error::Tag v$VERSION already exists"
+          if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::Release v$VERSION already exists"
             exit 1
           fi
-          git tag "v$VERSION" "$GITHUB_SHA"
-          git push origin "refs/tags/v$VERSION"
+
+          if git rev-parse --verify --quiet "refs/tags/v$VERSION"; then
+            CURRENT_TAG="$(git rev-list -n 1 "v$VERSION")"
+            if [[ "$CURRENT_TAG" != "$GITHUB_SHA" ]]; then
+              git tag --force "v$VERSION" "$GITHUB_SHA"
+              git push --force origin "refs/tags/v$VERSION"
+            fi
+          else
+            git tag "v$VERSION" "$GITHUB_SHA"
+            git push origin "refs/tags/v$VERSION"
+          fi
 
       - name: Preview unreleased notes
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run

@@ -17,5 +17,5 @@ def test_main_release_commit_can_tag_and_publish() -> None:
     assert "branches:\n      - main" in workflow
     assert "startsWith(github.event.head_commit.message, 'chore: release v')" in workflow
     assert 'SUBJECT="$(git log -1 --pretty=%s)"' in workflow
-    assert 'TAG_NEEDED=true' in workflow
+    assert "TAG_NEEDED=true" in workflow
     assert 'git push origin "refs/tags/v$VERSION"' in workflow
