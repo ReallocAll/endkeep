@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from .manifest import RepositoryManifest
 from .objects import ObjectStore
@@ -23,7 +24,13 @@ def referenced_object_hashes(manifest: RepositoryManifest) -> set[str]:
     return referenced
 
 
-def collect_orphan_objects(objects: ObjectStore, manifest: RepositoryManifest) -> GcResult:
+def collect_orphan_objects(
+    objects: ObjectStore,
+    manifest: RepositoryManifest,
+    *,
+    fault_hook: Callable[[str], None] | None = None,
+) -> GcResult:
+    hook = fault_hook or (lambda _point: None)
     referenced = referenced_object_hashes(manifest)
     removed = 0
     removed_bytes = 0
@@ -40,6 +47,7 @@ def collect_orphan_objects(objects: ObjectStore, manifest: RepositoryManifest) -
             continue
         size = path.stat().st_size
         path.unlink()
+        hook("after_gc_delete")
         removed += 1
         removed_bytes += size
         modified_dirs.add(path.parent)
@@ -52,5 +60,6 @@ def collect_orphan_objects(objects: ObjectStore, manifest: RepositoryManifest) -
             pass
     if modified_dirs:
         ObjectStore._fsync_directory(objects.objects_root)
+        hook("after_gc_dir_fsync")
 
     return GcResult(removed, removed_bytes, retained)
