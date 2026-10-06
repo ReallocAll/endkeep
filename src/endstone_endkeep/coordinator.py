@@ -48,6 +48,8 @@ class CaptureCoordinator:
         self._scheduled_for: str | None = None
         self._deadline = 0.0
         self._next_query = 0.0
+        self._hold_started = 0.0
+        self._hold_elapsed = 0.0
         self._cancel = Event()
         self._future: Future | None = None
         self._manifest: SnapshotManifest | None = None
@@ -79,6 +81,7 @@ class CaptureCoordinator:
         self._staged = None
         self._future = None
 
+        hold_started = time.monotonic()
         try:
             self._adapter.hold()
         except Exception as exc:
@@ -87,6 +90,7 @@ class CaptureCoordinator:
             return False
 
         now = time.monotonic()
+        self._hold_started = hold_started
         self._deadline = now + self.QUERY_TIMEOUT_SECONDS
         self._next_query = now
         self._state = "querying"
@@ -191,6 +195,8 @@ class CaptureCoordinator:
             return False
         if not result.dispatched or result.errors:
             return False
+        if self._hold_started > 0:
+            self._hold_elapsed = time.monotonic() - self._hold_started
         return True
 
     def _start_publish(self) -> None:
@@ -216,8 +222,8 @@ class CaptureCoordinator:
         if staged is not None:
             self._plugin.logger.info(
                 f"Snapshot {staged.snapshot_id} captured: files={staged.stage.files} "
-                f"bytes={staged.stage.bytes_copied} stage_copy={staged.stage.elapsed_seconds:.3f}s "
-                f"raw={final_path}"
+                f"bytes={staged.stage.bytes_copied} hold={self._hold_elapsed:.3f}s "
+                f"stage_copy={staged.stage.elapsed_seconds:.3f}s raw={final_path}"
             )
         self._reset()
 
@@ -239,6 +245,8 @@ class CaptureCoordinator:
         self._scheduled_for = None
         self._deadline = 0.0
         self._next_query = 0.0
+        self._hold_started = 0.0
+        self._hold_elapsed = 0.0
         self._future = None
         self._manifest = None
         self._staged = None
