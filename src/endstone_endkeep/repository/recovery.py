@@ -39,6 +39,7 @@ class StartupRecovery:
         cleaned_raw = self._clear_children(self.raw_root / ".incoming")
         cleaned_work = self._clear_children(self.work_root)
         cleaned_repo = self._clear_children(self.manifests.repo_root / ".incoming")
+        cleaned_repo += self._clean_transaction_parts()
 
         manifest, recovered_head = self._recover_authoritative_manifest()
         committed = set() if manifest is None else {node.snapshot for node in manifest.chain}
@@ -72,21 +73,22 @@ class StartupRecovery:
         )
 
     def _recover_authoritative_manifest(self) -> tuple[RepositoryManifest | None, int | None]:
-        head_exists = self.manifests.head_path.exists()
-        if head_exists:
+        head_generation: int | None = None
+        if self.manifests.head_path.exists():
             try:
-                current = self.manifests.load_current()
-                if current is not None and self._manifest_structurally_valid(current):
-                    return current, None
-            except Exception:
-                pass
+                head_generation = int(self.manifests.head_path.read_text(encoding="ascii").strip())
+            except (OSError, ValueError):
+                head_generation = None
 
         generations = self._generation_numbers()
         if not generations:
-            if head_exists:
+            if self.manifests.head_path.exists():
                 raise ManifestError("HEAD is invalid and no valid manifest generation exists")
             return None, None
 
+        # A generation is renamed only after all referenced objects are durable. If a
+        # crash happens before HEAD moves, promoting the latest structurally valid
+        # generation is safe and avoids a stale-generation collision on the next write.
         for generation in reversed(generations):
             try:
                 candidate = self.manifests.load_generation(generation)
@@ -94,8 +96,10 @@ class StartupRecovery:
                 continue
             if not self._manifest_structurally_valid(candidate):
                 continue
-            self._write_head(generation)
-            return candidate, generation
+            if head_generation != generation:
+                self._write_head(generation)
+                return candidate, generation
+            return candidate, None
 
         raise ManifestError("repository contains manifests but none are structurally valid")
 
@@ -134,6 +138,20 @@ class StartupRecovery:
             os.close(fd)
         os.replace(part, self.manifests.head_path)
         ManifestStore.fsync_directory(self.manifests.repo_root)
+
+    def _clean_transaction_parts(self) -> int:
+        count = 0
+        candidates = [
+            self.manifests.repo_root / "HEAD.part",
+            self.manifests.repo_root / "HEAD.recovery.part",
+        ]
+        if self.manifests.manifests_root.exists():
+            candidates.extend(self.manifests.manifests_root.glob("manifest-*.json.part"))
+        for path in candidates:
+            if path.exists():
+                path.unlink()
+                count += 1
+        return count
 
     @staticmethod
     def _clear_children(path: Path) -> int:
