@@ -39,6 +39,27 @@ def _resolve_node(manifest: RepositoryManifest, snapshot: str | None) -> Snapsho
     raise KeyError(f"snapshot not found: {snapshot}")
 
 
+def _verify_restore_dependencies(
+    manifest: RepositoryManifest,
+    objects: ObjectStore,
+    target: SnapshotNode,
+) -> None:
+    """Deep-verify only the immutable objects required to restore one snapshot."""
+
+    manifest.validate_chain()
+    target_index = next(index for index, node in enumerate(manifest.chain) if node.snapshot == target.snapshot)
+    checked: set[str] = set()
+
+    for node in manifest.chain[: target_index + 1]:
+        metadata = node.object
+        if metadata.logical_sha256 not in checked:
+            objects.verify(metadata)
+            checked.add(metadata.logical_sha256)
+
+    if target.sidecar.logical_sha256 not in checked:
+        objects.verify(target.sidecar)
+
+
 def command_list(repo: Path, *, as_json: bool) -> int:
     manifests, _objects, _reader = _runtime(repo)
     with RepositoryLock(repo):
@@ -88,8 +109,11 @@ def command_restore(repo: Path, destination: Path, snapshot: str | None) -> int:
         manifest = _load_manifest(manifests)
         node = _resolve_node(manifest, snapshot)
 
-        # Verify repository logical integrity before constructing a fresh world.
-        RepositoryVerifier(manifests, objects).verify(deep=True)
+        # A restore only depends on the BASE/DELTA prefix through the selected
+        # snapshot plus that snapshot's SIDECAR. Later recovery points must not
+        # prevent restoring an older intact point. The reconstructed DB is still
+        # reopened and checked against the target state digest below.
+        _verify_restore_dependencies(manifest, objects, node)
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.mkdir()
