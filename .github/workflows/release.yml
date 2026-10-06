@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
   workflow_dispatch:
@@ -26,6 +28,10 @@ permissions:
 jobs:
   prepare:
     name: Prepare release
+    if: >-
+      github.event_name != 'push' ||
+      github.ref_type == 'tag' ||
+      startsWith(github.event.head_commit.message, 'chore: release v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -34,6 +40,7 @@ jobs:
       build: ${{ steps.meta.outputs.build }}
       publish: ${{ steps.meta.outputs.publish }}
       ref: ${{ steps.meta.outputs.ref }}
+      tag_needed: ${{ steps.meta.outputs.tag_needed }}
 
     steps:
       - name: Checkout
@@ -48,11 +55,24 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+          TAG_NEEDED=false
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_TYPE" == "tag" ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
             BUILD=true
             PUBLISH=true
             REF="$GITHUB_REF_NAME"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            SUBJECT="$(git log -1 --pretty=%s)"
+            if [[ "$SUBJECT" =~ ^chore:\ release\ v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              VERSION="${BASH_REMATCH[1]}"
+            else
+              echo "::error::Main-branch release commits must be named 'chore: release vX.Y.Z'"
+              exit 1
+            fi
+            BUILD=true
+            PUBLISH=true
+            REF="$GITHUB_SHA"
+            TAG_NEEDED=true
           else
             VERSION="$INPUT_VERSION"
             if [[ "$INPUT_DRY_RUN" == "true" ]]; then
@@ -75,6 +95,7 @@ jobs:
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "tag_needed=$TAG_NEEDED" >> "$GITHUB_OUTPUT"
 
       - name: Validate tag-triggered changelog
         if: github.event_name == 'push'
@@ -82,6 +103,18 @@ jobs:
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           grep -F "## [$VERSION]" CHANGELOG.md
+
+      - name: Tag prepared release commit
+        if: steps.meta.outputs.tag_needed == 'true'
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          if git rev-parse --verify --quiet "refs/tags/v$VERSION"; then
+            echo "::error::Tag v$VERSION already exists"
+            exit 1
+          fi
+          git tag "v$VERSION" "$GITHUB_SHA"
+          git push origin "refs/tags/v$VERSION"
 
       - name: Preview unreleased notes
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
