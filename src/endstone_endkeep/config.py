@@ -115,6 +115,10 @@ class EndKeepConfig:
         retention = _section(mapping, "retention")
         storage = _section(mapping, "storage")
 
+        query_retries = capture.get("query_retries", 300)
+        if not isinstance(query_retries, int) or isinstance(query_retries, bool) or query_retries < 0:
+            raise ConfigError("capture.query_retries must be a non-negative integer")
+
         storage_path = storage.get("path")
         if not isinstance(storage_path, str) or not storage_path.strip():
             raise ConfigError("storage.path must be a non-empty path string")
@@ -136,7 +140,7 @@ class EndKeepConfig:
             enabled=enabled,
             capture=CaptureConfig(
                 times=_string_list(capture, "times"),
-                query_retries=_positive_int(capture, "query_retries", allow_zero=True),
+                query_retries=query_retries,
             ),
             maintenance=MaintenanceConfig(_string_list(maintenance, "times")),
             raw=RawConfig(
