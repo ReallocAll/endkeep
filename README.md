@@ -1,111 +1,250 @@
-# Endstone Python Example Plugin
+# EndKeep
 
-[![Build](https://github.com/EndstoneMC/python-example-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/EndstoneMC/python-example-plugin/actions/workflows/build.yml)
+[![Build](https://github.com/ReallocAll/endkeep/actions/workflows/build.yml/badge.svg)](https://github.com/ReallocAll/endkeep/actions/workflows/build.yml)
 
-A starter template for building [Endstone](https://github.com/EndstoneMC/endstone) plugins in Python.
-Endstone is a plugin framework for Minecraft Bedrock Dedicated Server, similar to
-Bukkit/Spigot/Paper for Java Edition. This template demonstrates commands, events,
-configuration, and permissions.
+EndKeep is a crash-safe logical incremental world backup plugin for
+[Endstone](https://github.com/EndstoneMC/endstone) and Minecraft Bedrock Dedicated Server.
 
-## Use This Template
+It creates short online recovery-point captures with BDS `save hold/query/resume`, then converts
+those raw snapshots during maintenance windows into a compact logical repository based on the
+visible Bedrock LevelDB key/value state.
 
-1. Click **Use this template** on GitHub (or fork/clone it)
-2. Rename the following to match your plugin:
+## Requirements
 
-| What | Where | Example |
-|------|-------|---------|
-| Package name | `pyproject.toml` `[project] name` | `endstone-my-plugin` |
-| Package directory | `src/endstone_example/` | `src/endstone_my_plugin/` |
-| Entry point | `pyproject.toml` `[project.entry-points."endstone"]` | `my-plugin = "endstone_my_plugin:MyPlugin"` |
-| Plugin class | `plugin.py` class name + `prefix` | `MyPlugin`, `prefix = "MyPlugin"` |
-| Permission prefix | `plugin.py` `permissions` dict keys | `my_plugin.command.*` |
+- Python 3.14
+- Endstone >= 0.11 and < 0.12
+- Bedrock Dedicated Server managed by Endstone
+- Amulet-LevelDB 3.0.7a0
+- zstandard
 
-3. Set `api_version = "0.11"` (or the Endstone version you target)
-4. Delete the example command/listener code and start building
+## How it works
+
+The latency-sensitive online capture path is deliberately small:
+
+```text
+save hold
+-> save query
+-> copy exactly the files and byte limits reported by BDS
+-> save resume
+```
+
+Hashing, zstd compression, Amulet LevelDB scans, semantic diffing, retention, rollover, and
+repository verification happen after BDS has resumed.
+
+Raw snapshots are a short-lived write-back queue, not the long-term backup format. Successful
+maintenance converts them into:
+
+- **BASE** — complete canonical visible LevelDB state.
+- **DELTA** — sorted semantic PUT/DELETE changes relative to the previous logical state.
+- **SIDECAR** — every query-manifest file under the world that is not under `world/db/**`.
+
+The repository uses immutable content-addressed objects, generation manifests, and an atomic
+`HEAD`. A raw snapshot is deleted only after the new logical objects, manifest generation, and
+`HEAD` are durable.
+
+## Default schedule
+
+EndKeep uses the operating system's local time.
+
+Online recovery-point captures:
+
+```text
+12:00
+16:30
+20:30
+23:45
+```
+
+Maintenance:
+
+```text
+06:00  FULL
+18:30  LOGIC_ONLY
+```
+
+`LOGIC_ONLY` drains all pending raw snapshots into the repository in timestamp order.
+
+`FULL` first performs the same drain, then applies retention, any required logical rollover,
+orphan-object GC, stale work cleanup, and structural repository verification.
+
+Missed schedule times are not replayed later.
+
+## Configuration
+
+The plugin writes `plugins/endkeep/config.toml` on first start.
+
+```toml
+enabled = true
+
+[capture]
+times = [
+    "12:00",
+    "16:30",
+    "20:30",
+    "23:45",
+]
+
+[maintenance]
+times = [
+    "06:00",
+    "18:30",
+]
+
+[raw]
+max_pending = 18
+max_age_days = 3
+
+[logical]
+compression_level = 6
+compression_threads = 4
+
+[retention]
+keep_days = 7
+keep_last = 28
+
+[storage]
+path = "backups"
+min_free_space_gib = 5
+```
+
+Retention keeps a snapshot when it is **within `keep_days` OR among the last `keep_last`**.
+The raw hard limits are safety limits: if the queue cannot be logicalized and a hard limit must be
+enforced, EndKeep drops the oldest raw recovery point first so newer player work remains protected.
+It still preserves the configured free-space reserve rather than filling the BDS disk.
+
+## Administrator commands
+
+All `/backup` commands require `endkeep.admin` and are OP/console-only by default.
+
+```text
+/backup status
+/backup create
+/backup list
+/backup maintenance
+/backup maintenance full
+/backup verify
+/backup reload
+```
+
+`/backup create` creates a raw snapshot only. It does not immediately force normal
+logicalization.
+
+There is intentionally no online `/backup restore`.
+
+## Storage layout
+
+By default:
+
+```text
+backups/
+├── raw/
+│   ├── .incoming/
+│   └── <snapshot-id>/
+├── repo/
+│   ├── LOCK
+│   ├── HEAD
+│   ├── objects/
+│   ├── manifests/
+│   └── .incoming/
+├── work/
+└── scheduler-state.json
+```
+
+`raw/` may normally contain only a few snapshots. `repo/` is the authoritative long-term
+backup repository.
+
+## Installation
+
+Download the EndKeep `.whl` from either a GitHub Actions build artifact or a GitHub Release,
+place/install it in the Endstone server environment using the normal Endstone plugin workflow,
+then restart the server.
+
+Actions and Releases also provide the standalone recovery assets:
+
+- `endkeep-offline.py`
+- `requirements-offline.txt`
+- `SHA256SUMS`
+
+## Offline verification and restore
+
+**STOP BDS BEFORE RESTORE.**
+
+Restore is intentionally unavailable inside the online plugin.
+
+The standalone tool does not require the EndKeep plugin wheel or Endstone. It only needs its
+declared third-party dependencies. With `uv`, PEP 723 metadata in the script can resolve those
+dependencies automatically:
+
+```bash
+uv run endkeep-offline.py --repo /path/to/backups/repo list
+uv run endkeep-offline.py --repo /path/to/backups/repo verify
+uv run endkeep-offline.py --repo /path/to/backups/repo restore /path/to/new-world
+```
+
+To restore a specific recovery point:
+
+```bash
+uv run endkeep-offline.py \
+  --repo /path/to/backups/repo \
+  restore /path/to/new-world \
+  --snapshot 20261006-163000
+```
+
+The destination world directory must not already exist. EndKeep restores sidecars, streams the
+BASE plus required DELTAs into a **fresh** Amulet LevelDB, closes and reopens it, and verifies the
+expected canonical visible-state SHA256 before reporting success.
+
+A restored LevelDB is not expected to be physically byte-identical to the original database.
+Correctness is defined by identical visible key/value state, matching state SHA256, and
+byte-identical sidecar content.
+
+## Crash-safety model
+
+Key invariants:
+
+- The BDS `save query` manifest is the sole authoritative definition of snapshot files and byte
+  lengths.
+- Every failure after a successful `save hold` attempts `save resume`.
+- Source paths reject absolute paths, `..`, symlink traversal, and non-regular files.
+- Active LevelDB logs are copied only to the byte length reported by BDS.
+- Repository objects are immutable and verified before publication.
+- `HEAD` moves only after all objects and the new generation manifest are durable.
+- Retention/GC happens only after the replacement authoritative state is committed.
+- Repository mutation is serialized by `repo/LOCK`.
+- Startup recovery repairs interrupted generation publication without doing a slow deep scan.
+- Any committed recovery point is designed to be restorable from the repository alone.
+
+## Verification
+
+Daily FULL maintenance performs structural verification: HEAD/manifest consistency, chain shape,
+referenced-object presence and size sanity, orphan detection, and stale-work cleanup.
+
+Use `/backup verify` or `endkeep-offline.py verify` for deep object and logical state digest
+verification.
+
+## Limitations and non-goals
+
+EndKeep v1 intentionally does not implement cloud upload, S3/WebDAV/FTP, online restore, GUI,
+player-facing backup commands, TPS/MSPT/player-count guards, a timezone framework, missed-event
+catch-up, physical SST CDC, proactive rebase heuristics, parallel logicalization, or automatic
+repair of arbitrary repository corruption.
+
+The repository should still be copied off-host using an independent operational process if
+machine-level disaster recovery is required.
 
 ## Development
 
-This template uses [uv](https://docs.astral.sh/uv/) for fast dependency management. If you
-prefer pip, replace `uv sync` with `pip install -e ".[dev]"` and `uv run` with just running
-the command directly.
-
 ```bash
-git clone https://github.com/EndstoneMC/python-example-plugin.git
-cd python-example-plugin
-uv sync --extra dev       # Install dependencies
-uv run ruff check src/    # Lint
-```
-
-For live development on a running server, activate the server's virtualenv and install in
-editable mode:
-
-```bash
-pip install -e .
-```
-
-Then use `/reload` in-game to pick up code changes without restarting.
-
-## Project Structure
-
-```
-src/endstone_example/
-  __init__.py       Re-exports the plugin class
-  plugin.py         Plugin lifecycle, commands, config
-  listener.py       Event listener (player join/quit)
-  config.toml       Default config (copied on first run)
-```
-
-## Adding Dependencies
-
-To use third-party packages from PyPI, add them to the `dependencies` list in `pyproject.toml`:
-
-```toml
-[project]
-dependencies = ["requests>=2.31", "aiosqlite>=0.19"]
-```
-
-Then run `uv sync` (or `pip install -e .`) to install them. They will be bundled automatically
-when you build the wheel.
-
-## Install on a Server
-
-```bash
+uv sync --extra dev
+uv run ruff check src tests tools
+uv run ruff format --check src tests tools
+uv run pytest
 uv build
+python tools/build_offline.py --output dist/endkeep-offline.py
 ```
 
-Copy the `.whl` from `dist/` into your server's `plugins/` folder and restart.
-
-## Releasing
-
-This template includes a GitHub Actions release workflow. To make a release:
-
-1. Add your changes under `## [Unreleased]` in `CHANGELOG.md`
-2. Go to **Actions > Release > Run workflow**
-3. Enter the version (e.g. `0.5.0`) and run
-
-The workflow validates the version, updates the changelog, creates a git tag and GitHub release,
-builds the wheel, publishes to PyPI, and attaches the `.whl` to the release.
-
-Use **dry run** to preview without making changes.
-
-### First-time PyPI setup
-
-Before your first release, configure [trusted publishing](https://docs.pypi.org/trusted-publishers/)
-so the workflow can upload to PyPI without API tokens:
-
-1. Go to https://pypi.org/manage/account/publishing/
-2. Add a new **pending publisher** with your GitHub repo, workflow `release.yml`,
-   and environment `pypi`
-3. In your GitHub repo, go to **Settings > Environments** and create an environment
-   named `pypi`
-
-Versioning is handled automatically by [hatch-vcs](https://github.com/ofek/hatch-vcs): tagged
-commits get clean versions (e.g. `0.5.0`), untagged commits get dev versions
-(e.g. `0.5.1.dev3`).
-
-## Documentation
-
-For more on the Endstone API, see the [documentation](https://endstone.dev/latest/).
+The Build workflow additionally tests the generated standalone script in a `--no-project`
+environment and performs a repository-only restore.
 
 ## License
 
