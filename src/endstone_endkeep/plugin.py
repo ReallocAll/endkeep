@@ -132,6 +132,7 @@ class EndKeepPlugin(Plugin):
         capture = CaptureCoordinator(
             self,
             raw_store,
+            query_retries=config.capture.query_retries,
             space_guard=repository.queue.free_space_allows,
             space_recovery=self._request_capture_space_recovery,
         )
