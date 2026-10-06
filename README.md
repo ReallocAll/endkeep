@@ -156,8 +156,11 @@ backup repository.
 ## Installation
 
 Download the EndKeep `.whl` from either a GitHub Actions build artifact or a GitHub Release,
-place/install it in the Endstone server environment using the normal Endstone plugin workflow,
-then restart the server.
+then install it into the Endstone server environment with Python 3.14 and pip before restarting
+the server.
+
+Current Amulet-LevelDB 3.0.7a0 metadata contains a compiler-version identifier that current uv
+resolvers reject, so EndKeep intentionally uses pip for runtime/offline dependency installation.
 
 Actions and Releases also provide the standalone recovery assets:
 
@@ -171,20 +174,22 @@ Actions and Releases also provide the standalone recovery assets:
 
 Restore is intentionally unavailable inside the online plugin.
 
-The standalone tool does not require the EndKeep plugin wheel or Endstone. It only needs its
-declared third-party dependencies. With `uv`, PEP 723 metadata in the script can resolve those
-dependencies automatically:
+The standalone tool does not require the EndKeep plugin wheel or Endstone. Create a clean
+Python 3.14 environment and install only the supplied offline requirements:
 
 ```bash
-uv run endkeep-offline.py --repo /path/to/backups/repo list
-uv run endkeep-offline.py --repo /path/to/backups/repo verify
-uv run endkeep-offline.py --repo /path/to/backups/repo restore /path/to/new-world
+python3.14 -m venv endkeep-offline-env
+endkeep-offline-env/bin/python -m pip install -r requirements-offline.txt
+
+endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo list
+endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo verify
+endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo restore /path/to/new-world
 ```
 
 To restore a specific recovery point:
 
 ```bash
-uv run endkeep-offline.py \
+endkeep-offline-env/bin/python endkeep-offline.py \
   --repo /path/to/backups/repo \
   restore /path/to/new-world \
   --snapshot 20261006-163000
@@ -235,16 +240,18 @@ machine-level disaster recovery is required.
 ## Development
 
 ```bash
-uv sync --extra dev
-uv run ruff check src tests tools
-uv run ruff format --check src tests tools
-uv run pytest
-uv build
-python tools/build_offline.py --output dist/endkeep-offline.py
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m ruff check src tests tools
+.venv/bin/python -m ruff format --check src tests tools
+.venv/bin/python -m pytest
+.venv/bin/python -m build
+.venv/bin/python tools/build_offline.py --output dist/endkeep-offline.py
 ```
 
-The Build workflow additionally tests the generated standalone script in a `--no-project`
-environment and performs a repository-only restore.
+The Build workflow additionally creates a clean offline virtual environment that installs only
+`requirements-offline.txt`, then performs repository-only list/verify/restore with the generated
+standalone script.
 
 ## License
 
