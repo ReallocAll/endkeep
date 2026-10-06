@@ -1,153 +1,273 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.5.0)"
+        description: "Version to release (e.g. 1.0.0)"
         required: true
         type: string
       dry_run:
-        description: "Preview without making changes"
+        description: "Validate and build without creating a tag or release"
         required: false
         type: boolean
-        default: false
+        default: true
+
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  release:
-    if: github.repository == 'EndstoneMC/python-example-plugin'
-    runs-on: ubuntu-latest
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      build: ${{ steps.meta.outputs.build }}
+      publish: ${{ steps.meta.outputs.publish }}
+      ref: ${{ steps.meta.outputs.ref }}
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Validate version
+      - name: Resolve release mode
+        id: meta
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          VERSION="${{ inputs.version }}"
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            BUILD=true
+            PUBLISH=true
+            REF="$GITHUB_REF_NAME"
+          else
+            VERSION="$INPUT_VERSION"
+            PUBLISH=false
+            REF="$GITHUB_SHA"
+            if [[ "$INPUT_DRY_RUN" == "true" ]]; then
+              BUILD=true
+            else
+              BUILD=false
+            fi
+          fi
+
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Invalid version format: $VERSION (expected X.Y.Z)"
+            echo "::error::Invalid version: $VERSION (expected X.Y.Z)"
             exit 1
           fi
-          if git tag -l "v$VERSION" | grep -q .; then
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag-triggered changelog
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          grep -F "## [$VERSION]" CHANGELOG.md
+
+      - name: Preview unreleased notes
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("CHANGELOG.md").read_text()
+          start = text.index("## [Unreleased]") + len("## [Unreleased]")
+          end = text.find("\n## [", start)
+          notes = text[start:] if end < 0 else text[start:end]
+          notes = notes.strip()
+          if not notes:
+              raise SystemExit("Unreleased changelog is empty")
+          print(notes)
+          PY
+
+      - name: Create release commit and tag
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Non-dry-run releases must be started from main"
+            exit 1
+          fi
+
+          VERSION="${{ steps.meta.outputs.version }}"
+          if git rev-parse --verify --quiet "refs/tags/v$VERSION"; then
             echo "::error::Tag v$VERSION already exists"
             exit 1
           fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - name: Extract unreleased changelog
-        run: |
-          BODY=$(sed -n '/^## \[Unreleased\]/,/^## \[/{/^## \[/d; p}' CHANGELOG.md)
-          BODY=$(echo "$BODY" | sed '/./,$!d' | sed -e :a -e '/^\n*$/{$d;N;ba}')
-          if [ -z "$BODY" ]; then
-            echo "::error::Unreleased section in CHANGELOG.md is empty"
-            exit 1
-          fi
-          echo "$BODY" > /tmp/release_body.md
-          echo "Extracted changelog:"
-          echo "$BODY"
-
-      - name: Preview
-        if: inputs.dry_run
-        run: |
           DATE=$(date -u +%Y-%m-%d)
-          echo "=== Dry Run ==="
-          echo "Version: $VERSION"
-          echo "Tag: v$VERSION"
-          echo "Date: $DATE"
-          echo ""
-          echo "=== Release Body ==="
-          cat /tmp/release_body.md
-          echo ""
-          echo "=== CHANGELOG.md will become ==="
-          echo "## [Unreleased]"
-          echo ""
-          echo "## [$VERSION] - $DATE"
+          VERSION="$VERSION" DATE="$DATE" python - <<'PY'
+          import os
+          from pathlib import Path
 
-      - name: Update CHANGELOG.md
-        if: ${{ !inputs.dry_run }}
-        run: |
-          DATE=$(date -u +%Y-%m-%d)
-          sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$VERSION] - $DATE/" CHANGELOG.md
+          path = Path("CHANGELOG.md")
+          text = path.read_text()
+          marker = "## [Unreleased]"
+          start = text.index(marker) + len(marker)
+          next_heading = text.find("\n## [", start)
+          notes = text[start:] if next_heading < 0 else text[start:next_heading]
+          if not notes.strip():
+              raise SystemExit("Unreleased changelog is empty")
+          version = os.environ["VERSION"]
+          date = os.environ["DATE"]
+          text = text.replace(marker, f"{marker}\n\n## [{version}] - {date}", 1)
+          path.write_text(text)
+          PY
 
-      - name: Commit and tag
-        if: ${{ !inputs.dry_run }}
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md
-          git commit -m "Release $VERSION"
+          git commit -m "chore: release v$VERSION"
           git tag "v$VERSION"
+          git push --atomic origin HEAD:main "refs/tags/v$VERSION"
 
-      - name: Push
-        if: ${{ !inputs.dry_run }}
-        run: |
-          git push origin main
-          git push origin "v$VERSION"
+      - name: Release handoff
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        run: echo "Tag pushed; the tag-triggered Release run will build and publish assets."
 
-      - name: Create GitHub release
-        if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PREV_TAG=$(git tag --sort=-v:refname | sed -n '2p')
-          if [ -n "$PREV_TAG" ]; then
-            printf '\n**Full Changelog**: https://github.com/%s/compare/%s...v%s\n' \
-              "${{ github.repository }}" "$PREV_TAG" "$VERSION" >> /tmp/release_body.md
-          fi
-          gh release create "v$VERSION" \
-            --title "v$VERSION" \
-            --notes-file /tmp/release_body.md
+  package:
+    name: Test & package
+    if: needs.prepare.outputs.build == 'true'
+    needs: prepare
+    runs-on: ubuntu-24.04
 
-  build:
-    if: ${{ !inputs.dry_run }}
-    needs: [ release ]
-    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          ref: v${{ inputs.version }}
+          ref: ${{ needs.prepare.outputs.ref }}
           fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.10"
+          python-version: "3.14"
+          enable-cache: true
 
       - name: Install
         run: uv sync --extra dev
 
       - name: Lint
-        run: uv run ruff check src/
+        run: uv run ruff check src tests tools
+
+      - name: Check formatting
+        run: uv run ruff format --check src tests tools
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Build assets
+        run: |
+          uv build
+          python tools/build_offline.py --output dist/endkeep-offline.py
+          cp requirements-offline.txt dist/requirements-offline.txt
+          (
+            cd dist
+            sha256sum *.whl endkeep-offline.py requirements-offline.txt > SHA256SUMS
+          )
+
+      - name: Wheel metadata smoke
+        run: |
+          uv venv /tmp/endkeep-wheel-smoke --python 3.14
+          uv pip install --python /tmp/endkeep-wheel-smoke/bin/python --no-deps dist/*.whl
+          /tmp/endkeep-wheel-smoke/bin/python - <<'PY'
+          from importlib.metadata import metadata
+          package = metadata("endstone-endkeep")
+          assert package["Name"] == "endstone-endkeep"
+          print(package["Name"], package["Version"])
+          PY
+
+      - name: Standalone repository-only restore
+        run: |
+          uv run python tests/standalone_fixture.py /tmp/endkeep-fixture
+          uv run --no-project dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo list
+          uv run --no-project dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify
+          uv run --no-project dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo restore /tmp/endkeep-restored
+          test -f /tmp/endkeep-restored/level.dat
+          test -d /tmp/endkeep-restored/db
+
+      - name: Upload release-shaped artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: endkeep-release-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/*.whl
+            dist/endkeep-offline.py
+            dist/requirements-offline.txt
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
 
   publish:
-    needs: [ build ]
-    runs-on: ubuntu-latest
-    environment: pypi
+    name: Publish GitHub release
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
     permissions:
-      id-token: write
       contents: write
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
+      - name: Checkout tag
+        uses: actions/checkout@v7
         with:
-          ref: v${{ inputs.version }}
+          ref: v${{ needs.prepare.outputs.version }}
           fetch-depth: 0
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+      - name: Download assets
+        uses: actions/download-artifact@v8
+        with:
+          name: endkeep-release-${{ needs.prepare.outputs.version }}
+          path: assets
 
-      - name: Build
-        run: uv build
+      - name: Extract release notes
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}" python - <<'PY'
+          import os
+          from pathlib import Path
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+          version = os.environ["VERSION"]
+          text = Path("CHANGELOG.md").read_text()
+          marker = f"## [{version}]"
+          start = text.index(marker)
+          start = text.index("\n", start) + 1
+          end = text.find("\n## [", start)
+          notes = text[start:] if end < 0 else text[start:end]
+          notes = notes.strip()
+          if not notes:
+              raise SystemExit(f"No changelog notes for {version}")
+          Path("/tmp/release-notes.md").write_text(notes + "\n")
+          PY
 
-      - name: Attach wheel to GitHub Release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "v${{ inputs.version }}" dist/*.whl
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          gh release create "v$VERSION" \
+            --repo "${{ github.repository }}" \
+            --verify-tag \
+            --title "v$VERSION" \
+            --notes-file /tmp/release-notes.md \
+            assets/*.whl \
+            assets/endkeep-offline.py \
+            assets/requirements-offline.txt \
+            assets/SHA256SUMS
