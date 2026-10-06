@@ -60,7 +60,12 @@ def write_sidecar(
     return SidecarStats(files, total_bytes)
 
 
-def extract_sidecar(stream: BinaryIO, destination_root: Path) -> SidecarStats:
+def extract_sidecar(
+    stream: BinaryIO,
+    destination_root: Path,
+    *,
+    strip_prefix: str | None = None,
+) -> SidecarStats:
     if _read_exact(stream, len(SIDECAR_MAGIC)) != SIDECAR_MAGIC:
         raise LogicalFormatError("invalid SIDECAR magic/version")
 
@@ -85,8 +90,19 @@ def extract_sidecar(stream: BinaryIO, destination_root: Path) -> SidecarStats:
         if previous is not None and path_text <= previous:
             raise LogicalFormatError("SIDECAR paths are not strictly increasing")
 
+        if strip_prefix is not None:
+            if not path.parts or path.parts[0] != strip_prefix:
+                raise LogicalFormatError(
+                    f"SIDECAR path {path_text!r} is outside expected world prefix {strip_prefix!r}"
+                )
+            relative_parts = path.parts[1:]
+            if not relative_parts:
+                raise LogicalFormatError(f"SIDECAR path names the world directory itself: {path_text!r}")
+        else:
+            relative_parts = path.parts
+
         size = _read_uvarint(stream)
-        target = destination_root.joinpath(*path.parts)
+        target = destination_root.joinpath(*relative_parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         parent = target.parent.resolve()
         if parent != root and root not in parent.parents:
