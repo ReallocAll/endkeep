@@ -50,3 +50,9 @@ def test_zero_query_retries_is_allowed() -> None:
     mapping = _defaults()
     mapping["capture"]["query_retries"] = 0
     assert EndKeepConfig.from_mapping(mapping).capture.query_retries == 0
+
+
+def test_missing_query_retries_uses_backward_compatible_default() -> None:
+    mapping = _defaults()
+    del mapping["capture"]["query_retries"]
+    assert EndKeepConfig.from_mapping(mapping).capture.query_retries == 300
