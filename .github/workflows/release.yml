@@ -55,12 +55,14 @@ jobs:
             REF="$GITHUB_REF_NAME"
           else
             VERSION="$INPUT_VERSION"
-            PUBLISH=false
-            REF="$GITHUB_SHA"
             if [[ "$INPUT_DRY_RUN" == "true" ]]; then
               BUILD=true
+              PUBLISH=false
+              REF="$GITHUB_SHA"
             else
-              BUILD=false
+              BUILD=true
+              PUBLISH=true
+              REF="v$VERSION"
             fi
           fi
 
@@ -140,7 +142,7 @@ jobs:
 
       - name: Release handoff
         if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
-        run: echo "Tag pushed; the tag-triggered Release run will build and publish assets."
+        run: echo "Release commit and tag pushed; this workflow run will build and publish the assets."
 
   package:
     name: Test & package
