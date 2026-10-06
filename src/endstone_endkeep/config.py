@@ -53,6 +53,7 @@ def _section(mapping: Mapping[str, Any], name: str) -> Mapping[str, Any]:
 @dataclass(frozen=True)
 class CaptureConfig:
     times: tuple[str, ...]
+    query_retries: int
 
 
 @dataclass(frozen=True)
@@ -133,7 +134,10 @@ class EndKeepConfig:
 
         return cls(
             enabled=enabled,
-            capture=CaptureConfig(_string_list(capture, "times")),
+            capture=CaptureConfig(
+                times=_string_list(capture, "times"),
+                query_retries=_positive_int(capture, "query_retries", allow_zero=True),
+            ),
             maintenance=MaintenanceConfig(_string_list(maintenance, "times")),
             raw=RawConfig(
                 max_pending=_positive_int(raw, "max_pending"),
