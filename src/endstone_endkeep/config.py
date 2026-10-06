@@ -138,10 +138,7 @@ class EndKeepConfig:
 
         return cls(
             enabled=enabled,
-            capture=CaptureConfig(
-                times=_string_list(capture, "times"),
-                query_retries=query_retries,
-            ),
+            capture=CaptureConfig(times=_string_list(capture, "times"), query_retries=query_retries),
             maintenance=MaintenanceConfig(_string_list(maintenance, "times")),
             raw=RawConfig(
                 max_pending=_positive_int(raw, "max_pending"),
