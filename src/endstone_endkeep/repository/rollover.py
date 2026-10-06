@@ -54,6 +54,7 @@ class Rollover:
 
         new_base = SnapshotNode(
             snapshot=target.snapshot,
+            world_name=target.world_name,
             type="base",
             object=object_meta,
             sidecar=target.sidecar,
