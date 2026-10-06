@@ -4,7 +4,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Callable, Literal
 
 from .bds.commands import BdsSaveAdapter
 from .bds.model import SnapshotManifest
@@ -31,10 +31,17 @@ class CaptureCoordinator:
     QUERY_TIMEOUT_SECONDS = 15.0
     QUERY_POLL_SECONDS = 0.05
 
-    def __init__(self, plugin: Plugin, raw_store: RawSnapshotStore) -> None:
+    def __init__(
+        self,
+        plugin: Plugin,
+        raw_store: RawSnapshotStore,
+        *,
+        space_guard: Callable[[int], bool] | None = None,
+    ) -> None:
         self._plugin = plugin
         self._adapter = BdsSaveAdapter(plugin.server)
         self._raw_store = raw_store
+        self._space_guard = space_guard
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="endkeep-capture")
         self._state: CaptureState = "idle"
         self._scheduled_for: str | None = None
@@ -131,6 +138,12 @@ class CaptureCoordinator:
             manifest = QueryManifestParser.parse_messages((*capture.messages, *capture.errors))
         except QueryManifestError:
             # BDS may report that the save is not ready yet. Poll until the fixed timeout.
+            return
+
+        if self._space_guard is not None and not self._space_guard(manifest.total_bytes):
+            self._fail_held(
+                f"insufficient free space for {manifest.total_bytes} snapshot bytes while preserving reserve"
+            )
             return
 
         self._manifest = manifest
