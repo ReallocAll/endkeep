@@ -26,8 +26,7 @@ def load_raw_snapshot(path: Path) -> RawSnapshotMetadata:
         raise ValueError(f"raw snapshot id/path mismatch: {snapshot_id!r} != {path.name!r}")
 
     entries = tuple(
-        SnapshotEntry(PurePosixPath(str(item["path"])), int(item["snapshot_bytes"]))
-        for item in raw["files"]
+        SnapshotEntry(PurePosixPath(str(item["path"])), int(item["snapshot_bytes"])) for item in raw["files"]
     )
     manifest = SnapshotManifest(str(raw["world_name"]), entries)
     if int(raw["total_bytes"]) != manifest.total_bytes:
