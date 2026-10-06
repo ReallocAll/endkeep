@@ -79,6 +79,9 @@ class _RawStore:
         self.publish_path = publish_path
         self.published: list[StagedRawSnapshot] = []
 
+    def stage(self, *_args, **_kwargs) -> None:
+        return None
+
     def publish(self, staged: StagedRawSnapshot) -> Path:
         self.published.append(staged)
         return self.publish_path
