@@ -146,10 +146,13 @@ class ObjectStore:
         self.fault_hook = fault_hook or (lambda _point: None)
 
     def prepare(self) -> None:
+        repo_created = not self.repo_root.exists()
         objects_created = not self.objects_root.exists()
         incoming_created = not self.incoming_root.exists()
         self.objects_root.mkdir(parents=True, exist_ok=True)
         self.incoming_root.mkdir(parents=True, exist_ok=True)
+        if repo_created:
+            self._fsync_directory(self.repo_root.parent)
         if objects_created or incoming_created:
             self._fsync_directory(self.repo_root)
 
