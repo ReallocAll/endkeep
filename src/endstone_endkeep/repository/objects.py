@@ -6,7 +6,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import BinaryIO, Callable, Generator, Generic, TypeVar
+from typing import BinaryIO, Callable, Generator, TypeVar
 
 import zstandard as zstd
 
@@ -130,12 +130,20 @@ class ObjectWriter:
 
 
 class ObjectStore:
-    def __init__(self, repo_root: Path, *, compression_level: int, compression_threads: int) -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        *,
+        compression_level: int,
+        compression_threads: int,
+        fault_hook: Callable[[str], None] | None = None,
+    ) -> None:
         self.repo_root = repo_root
         self.objects_root = repo_root / "objects"
         self.incoming_root = repo_root / ".incoming"
         self.compression_level = compression_level
         self.compression_threads = compression_threads
+        self.fault_hook = fault_hook or (lambda _point: None)
 
     def prepare(self) -> None:
         self.objects_root.mkdir(parents=True, exist_ok=True)
@@ -154,6 +162,7 @@ class ObjectStore:
         try:
             result = builder(writer)
             metadata = writer.finish()
+            self.fault_hook("after_object_fsync")
             self.verify_path(incoming, metadata)
 
             target = self.path_for(metadata.logical_sha256)
@@ -171,7 +180,9 @@ class ObjectStore:
                 incoming.unlink()
             else:
                 os.rename(incoming, target)
+                self.fault_hook("after_object_rename")
                 self._fsync_directory(target.parent)
+                self.fault_hook("after_object_dir_fsync")
             return metadata, result
         except Exception:
             writer.abort()
