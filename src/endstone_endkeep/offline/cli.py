@@ -113,8 +113,7 @@ def command_restore(repo: Path, destination: Path, snapshot: str | None) -> int:
                 or reopened_stats.value_bytes != node.value_bytes
             ):
                 raise RuntimeError(
-                    f"restored world state digest mismatch: "
-                    f"{reopened_stats.sha256} != {node.state_sha256}"
+                    f"restored world state digest mismatch: {reopened_stats.sha256} != {node.state_sha256}"
                 )
 
             _fsync_tree(destination)
