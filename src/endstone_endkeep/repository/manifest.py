@@ -110,7 +110,13 @@ class ManifestStore:
         self.head_path = repo_root / "HEAD"
 
     def prepare(self) -> None:
+        repo_created = not self.repo_root.exists()
+        manifests_created = not self.manifests_root.exists()
         self.manifests_root.mkdir(parents=True, exist_ok=True)
+        if repo_created:
+            self.fsync_directory(self.repo_root.parent)
+        if manifests_created:
+            self.fsync_directory(self.repo_root)
 
     def load_current(self) -> RepositoryManifest | None:
         if not self.head_path.exists():
