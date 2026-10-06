@@ -35,21 +35,53 @@ jobs:
         run: uv sync --extra dev
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests tools
 
       - name: Check formatting
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests tools
 
       - name: Test
         run: uv run pytest
 
-      - name: Build wheel
-        run: uv build
+      - name: Build release-shaped artifacts
+        run: |
+          uv build
+          python tools/build_offline.py --output dist/endkeep-offline.py
+          cp requirements-offline.txt dist/requirements-offline.txt
+          (
+            cd dist
+            sha256sum *.whl endkeep-offline.py requirements-offline.txt > SHA256SUMS
+          )
 
-      - name: Upload wheel
+      - name: Wheel smoke install
+        run: |
+          uv venv /tmp/endkeep-wheel-smoke --python 3.14
+          uv pip install --python /tmp/endkeep-wheel-smoke/bin/python --no-deps dist/*.whl
+          /tmp/endkeep-wheel-smoke/bin/python - <<'PY'
+          from importlib.metadata import metadata
+          package = metadata("endstone-endkeep")
+          assert package["Name"] == "endstone-endkeep"
+          print(package["Name"], package["Version"])
+          PY
+
+      - name: Standalone offline smoke
+        run: |
+          uv run python tests/standalone_fixture.py /tmp/endkeep-fixture
+          uv run --no-project dist/endkeep-offline.py --help
+          uv run --no-project dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo list
+          uv run --no-project dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify
+          uv run --no-project dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo restore /tmp/endkeep-restored
+          test -f /tmp/endkeep-restored/level.dat
+          test -d /tmp/endkeep-restored/db
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: endkeep-wheel-${{ github.run_id }}
-          path: dist/*.whl
+          name: endkeep-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            dist/endkeep-offline.py
+            dist/requirements-offline.txt
+            dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
