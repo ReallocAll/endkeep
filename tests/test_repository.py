@@ -35,3 +35,20 @@ def test_object_store_and_manifest_commit(tmp_path: Path) -> None:
     loaded = store.load_current()
     assert loaded == manifest
     assert (repo / "HEAD").read_text().strip() == "1"
+
+
+def test_new_repository_directories_are_parent_fsynced(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+
+    object_fsyncs: list[Path] = []
+    monkeypatch.setattr(ObjectStore, "_fsync_directory", staticmethod(object_fsyncs.append))
+    ObjectStore(repo, compression_level=6, compression_threads=1).prepare()
+
+    assert tmp_path in object_fsyncs
+    assert repo in object_fsyncs
+
+    manifest_fsyncs: list[Path] = []
+    monkeypatch.setattr(ManifestStore, "fsync_directory", staticmethod(manifest_fsyncs.append))
+    ManifestStore(repo).prepare()
+
+    assert repo in manifest_fsyncs
