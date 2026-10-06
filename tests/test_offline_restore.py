@@ -5,7 +5,7 @@ from pathlib import Path
 from endstone_endkeep.logical.amulet_reader import iter_visible_state
 from endstone_endkeep.offline.cli import command_restore, command_verify
 
-from standalone_fixture import build_fixture
+from tests.standalone_fixture import build_fixture
 
 
 def test_repository_only_restore(tmp_path: Path) -> None:
