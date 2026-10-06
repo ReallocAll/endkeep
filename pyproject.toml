@@ -3,47 +3,58 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "endstone-example"
+name = "endstone-endkeep"
 dynamic = ["version"]
-dependencies = ["typing_extensions>=4.0"]
-authors = [
-    { name = "Endstone Developers", email = "hello@endstone.dev" },
+dependencies = [
+    "amulet-leveldb==3.0.7a0",
+    "zstandard>=0.23,<1",
 ]
-description = "Python example plugin for Endstone servers"
+authors = [
+    { name = "ReallocAll" },
+]
+description = "Crash-safe logical incremental world backups for Endstone"
 readme = "README.md"
 license = { file = "LICENSE" }
-keywords = ["endstone", "plugin"]
-requires-python = ">=3.10"
+keywords = ["endstone", "minecraft", "bedrock", "backup", "leveldb"]
+requires-python = ">=3.14"
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 
 [project.optional-dependencies]
-dev = ["endstone", "ruff"]
+dev = [
+    "endstone>=0.11,<0.12",
+    "pytest>=8.4,<9",
+    "ruff>=0.15,<1",
+]
 
 [project.urls]
-Homepage = "https://github.com/EndstoneMC/python-example-plugin"
-Documentation = "https://endstone.dev/latest/"
-Changelog = "https://github.com/EndstoneMC/python-example-plugin/blob/main/CHANGELOG.md"
-Issues = "https://github.com/EndstoneMC/python-example-plugin/issues"
+Homepage = "https://github.com/ReallocAll/endkeep"
+Documentation = "https://github.com/ReallocAll/endkeep#readme"
+Changelog = "https://github.com/ReallocAll/endkeep/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ReallocAll/endkeep/issues"
 
 [project.entry-points."endstone"]
-example = "endstone_example:ExamplePlugin"
+endkeep = "endstone_endkeep:EndKeepPlugin"
 
 [tool.ruff]
 line-length = 120
+target-version = "py314"
 
 [tool.ruff.lint]
-select = ["I", "E", "F"]
+select = ["I", "E", "F", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/endstone_example/_version.py"
+version-file = "src/endstone_endkeep/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/endstone_endkeep"]
