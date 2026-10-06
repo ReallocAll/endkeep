@@ -87,7 +87,6 @@ class CaptureCoordinator:
         self._space_retry_bytes = None
         self._query_failures = 0
         self._query_retry_ticks = 0
-        self._query_retry_ticks = 0
 
         hold_started = time.monotonic()
         try:
@@ -295,3 +294,4 @@ class CaptureCoordinator:
         self._staged = None
         self._space_retry_bytes = None
         self._query_failures = 0
+        self._query_retry_ticks = 0
