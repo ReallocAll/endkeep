@@ -43,6 +43,7 @@ endkeep = "endstone_endkeep:EndKeepPlugin"
 [tool.ruff]
 line-length = 120
 target-version = "py314"
+extend-exclude = ["src/endstone_endkeep/_version.py"]
 
 [tool.ruff.lint]
 select = ["I", "E", "F", "UP", "B"]
