@@ -207,9 +207,7 @@ class EndKeepPlugin(Plugin):
     def _dispatch_schedule_event(self, event: ScheduleEvent) -> None:
         if event.kind == "capture":
             if not self._request_capture(scheduled_for=event.configured_time):
-                self.logger.error(
-                    f"CAPTURE FAILURE: scheduled capture {event.configured_time} could not be accepted"
-                )
+                self.logger.error(f"CAPTURE FAILURE: scheduled capture {event.configured_time} could not be accepted")
             return
 
         repository = self._repository
@@ -221,9 +219,7 @@ class EndKeepPlugin(Plugin):
                 f"at {event.configured_time} skipped because repository is busy"
             )
         else:
-            self.logger.info(
-                f"Scheduled {event.maintenance_mode} maintenance started ({event.configured_time})."
-            )
+            self.logger.info(f"Scheduled {event.maintenance_mode} maintenance started ({event.configured_time}).")
 
     def _request_capture(self, *, scheduled_for: str | None) -> bool:
         config = self._runtime_config
@@ -255,13 +251,10 @@ class EndKeepPlugin(Plugin):
                 )
             if limits.dropped:
                 self.logger.critical(
-                    f"CRITICAL RAW LIMIT: dropped oldest pending raw snapshot(s): "
-                    f"{', '.join(limits.dropped)}"
+                    f"CRITICAL RAW LIMIT: dropped oldest pending raw snapshot(s): {', '.join(limits.dropped)}"
                 )
             if limits.blocked_for_space:
-                self.logger.error(
-                    "CAPTURE FAILURE: free space is below configured reserve after raw-limit enforcement"
-                )
+                self.logger.error("CAPTURE FAILURE: free space is below configured reserve after raw-limit enforcement")
                 self._clear_pending_capture()
                 return
 
@@ -288,9 +281,7 @@ class EndKeepPlugin(Plugin):
     def _log_maintenance(self, result: MaintenanceResult) -> None:
         committed = len(result.committed)
         failures = len(result.failures)
-        self.logger.info(
-            f"{result.mode} maintenance complete: committed={committed} failures={failures}"
-        )
+        self.logger.info(f"{result.mode} maintenance complete: committed={committed} failures={failures}")
         for item in result.committed:
             self.logger.info(
                 f"Logicalized {item.snapshot_id}: type={item.node_type} records={item.records} "
@@ -299,19 +290,14 @@ class EndKeepPlugin(Plugin):
                 f"elapsed={item.elapsed_seconds:.3f}s"
             )
         for failure in result.failures:
-            self.logger.error(
-                f"LOGICALIZATION FAILURE: snapshot={failure.snapshot_id}: {failure.error}"
-            )
+            self.logger.error(f"LOGICALIZATION FAILURE: snapshot={failure.snapshot_id}: {failure.error}")
         if result.rollover is not None:
             self.logger.info(
                 f"Retention rollover: new_base={result.rollover.new_base_snapshot} "
                 f"absorbed={len(result.rollover.absorbed_snapshots)}"
             )
         if result.gc is not None:
-            self.logger.info(
-                f"GC: removed_objects={result.gc.removed_objects} "
-                f"removed_bytes={result.gc.removed_bytes}"
-            )
+            self.logger.info(f"GC: removed_objects={result.gc.removed_objects} removed_bytes={result.gc.removed_bytes}")
         if result.verify is not None:
             self.logger.info(
                 f"Structural verify: generation={result.verify.generation} "
@@ -353,9 +339,7 @@ class EndKeepPlugin(Plugin):
         if manifest is None:
             sender.send_message("EndKeep repository is empty.")
             return
-        sender.send_message(
-            f"EndKeep repository generation {manifest.generation}: {len(manifest.chain)} snapshot(s)"
-        )
+        sender.send_message(f"EndKeep repository generation {manifest.generation}: {len(manifest.chain)} snapshot(s)")
         for node in manifest.chain[-20:]:
             sender.send_message(
                 f"{node.snapshot} {node.type.upper()} {node.captured_at} "
