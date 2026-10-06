@@ -172,9 +172,7 @@ class CaptureCoordinator:
         self._query_failures += 1
         if self._query_failures <= self._query_retries:
             return
-        self._fail_held(
-            f"{reason}; retry limit exhausted after {self._query_failures} unsuccessful attempt(s)"
-        )
+        self._fail_held(f"{reason}; retry limit exhausted after {self._query_failures} unsuccessful attempt(s)")
 
     def _defer_for_space(self, required_bytes: int) -> None:
         self._space_retry_bytes = required_bytes
