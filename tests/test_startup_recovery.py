@@ -48,9 +48,7 @@ def test_startup_recovers_old_or_new_authoritative_generation(
     repo = storage / "repo"
     objects = ObjectStore(repo, compression_level=6, compression_threads=1)
     base_meta, base_stats = objects.create(lambda stream: write_base(stream, [(b"a", b"1")]))
-    delta_meta, _ = objects.create(
-        lambda stream: write_delta(stream, [DeltaOperation.put(b"a", b"2")])
-    )
+    delta_meta, _ = objects.create(lambda stream: write_delta(stream, [DeltaOperation.put(b"a", b"2")]))
 
     base = _node("s1", "base", base_meta, base_stats.state_sha256)
     store = ManifestStore(repo)
