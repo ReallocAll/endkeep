@@ -24,3 +24,21 @@ def test_generated_offline_script_is_self_contained(tmp_path: Path) -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert "Offline EndKeep repository" in completed.stdout
+
+
+def test_core_import_does_not_load_endstone_runtime() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "import endstone_endkeep.logical.format; "
+                "assert 'endstone' not in sys.modules, sorted(name for name in sys.modules if name.startswith('endstone'))"
+            ),
+        ],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    assert completed.returncode == 0, completed.stderr
