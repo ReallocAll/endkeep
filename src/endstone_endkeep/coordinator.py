@@ -37,12 +37,15 @@ class CaptureCoordinator:
         plugin: Plugin,
         raw_store: RawSnapshotStore,
         *,
+        query_retries: int = 300,
         space_guard: Callable[[int], bool] | None = None,
         space_recovery: Callable[[int, str | None], bool] | None = None,
     ) -> None:
         self._plugin = plugin
         self._adapter = BdsSaveAdapter(plugin.server)
         self._raw_store = raw_store
+        self._query_retries = query_retries
+        self._query_failures = 0
         self._space_guard = space_guard
         self._space_recovery = space_recovery
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="endkeep-capture")
@@ -84,6 +87,7 @@ class CaptureCoordinator:
         self._staged = None
         self._future = None
         self._space_retry_bytes = None
+        self._query_failures = 0
 
         hold_started = time.monotonic()
         try:
@@ -130,7 +134,7 @@ class CaptureCoordinator:
     def _pump_query(self) -> None:
         now = time.monotonic()
         if now >= self._deadline:
-            self._fail_held("save query timed out")
+            self._fail_held(f"save query timed out after {self._query_failures} unsuccessful attempt(s)")
             return
         if now < self._next_query:
             return
@@ -139,17 +143,16 @@ class CaptureCoordinator:
         try:
             capture = self._adapter.query()
         except Exception as exc:
-            self._fail_held(f"save query dispatch failed: {exc}")
-            return
-
-        if not capture.dispatched:
-            self._fail_held("save query command could not be dispatched")
+            self._retry_query_or_fail(f"save query raised: {exc}")
             return
 
         try:
             manifest = QueryManifestParser.parse_messages((*capture.messages, *capture.errors))
         except QueryManifestError:
-            # BDS may report that the save is not ready yet. Poll until the fixed timeout.
+            # Endstone's dispatch_command() return value reflects command success,
+            # not whether the vanilla command reached BDS. A false result is expected
+            # while save query is waiting for the held save to become ready.
+            self._retry_query_or_fail("save query did not return a valid manifest")
             return
 
         if self._space_guard is not None and not self._space_guard(manifest.total_bytes):
@@ -164,6 +167,14 @@ class CaptureCoordinator:
             cancel=self._cancel,
         )
         self._state = "staging"
+
+    def _retry_query_or_fail(self, reason: str) -> None:
+        self._query_failures += 1
+        if self._query_failures <= self._query_retries:
+            return
+        self._fail_held(
+            f"{reason}; retry limit exhausted after {self._query_failures} unsuccessful attempt(s)"
+        )
 
     def _defer_for_space(self, required_bytes: int) -> None:
         self._space_retry_bytes = required_bytes
@@ -288,3 +299,4 @@ class CaptureCoordinator:
         self._manifest = None
         self._staged = None
         self._space_retry_bytes = None
+        self._query_failures = 0
