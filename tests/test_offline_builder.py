@@ -34,7 +34,8 @@ def test_core_import_does_not_load_endstone_runtime() -> None:
             (
                 "import sys; "
                 "import endstone_endkeep.logical.format; "
-                "assert 'endstone' not in sys.modules, sorted(name for name in sys.modules if name.startswith('endstone'))"
+                "loaded = sorted(name for name in sys.modules if name.startswith('endstone')); "
+                "assert 'endstone' not in sys.modules, loaded"
             ),
         ],
         check=False,
