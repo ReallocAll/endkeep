@@ -14,10 +14,7 @@ class FakeTranslatable:
 def test_parse_manifest_from_translation_parameter() -> None:
     message = FakeTranslatable(
         "commands.save.query.success",
-        [
-            "level/db/000828.log:107820, level/db/000001.ldb:42, "
-            "level/level.dat:3326, level/levelname.txt:5"
-        ],
+        ["level/db/000828.log:107820, level/db/000001.ldb:42, level/level.dat:3326, level/levelname.txt:5"],
     )
     manifest = QueryManifestParser.parse_messages([message])
     assert manifest.world_name == "level"
