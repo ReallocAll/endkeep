@@ -34,9 +34,16 @@ class _Plugin:
 
 
 class _FakeAdapter:
-    def __init__(self, *, query_error: Exception | None = None, resume_failures: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        query_error: Exception | None = None,
+        query_messages: tuple[object, ...] = (),
+        resume_failures: int = 0,
+    ) -> None:
         self._held = False
         self.query_error = query_error
+        self.query_messages = query_messages
         self.resume_failures = resume_failures
         self.resume_calls = 0
 
@@ -51,7 +58,7 @@ class _FakeAdapter:
     def query(self):
         if self.query_error is not None:
             raise self.query_error
-        return SimpleNamespace(dispatched=True, messages=(), errors=())
+        return SimpleNamespace(dispatched=True, messages=self.query_messages, errors=())
 
     def resume(self):
         self.resume_calls += 1
@@ -145,5 +152,32 @@ def test_staged_snapshot_is_published_only_after_resume_retry_succeeds(monkeypat
 
         assert coordinator.status().state == "idle"
         assert raw_store.published == [staged]
+    finally:
+        coordinator.close()
+
+
+def test_space_shortage_resumes_and_requests_cleanup_before_fresh_capture(monkeypatch, tmp_path: Path) -> None:
+    adapter = _FakeAdapter(query_messages=("level/level.dat:3",))
+    plugin = _Plugin()
+    raw_store = _RawStore(tmp_path / "raw" / "snapshot")
+    recoveries: list[tuple[int, str | None]] = []
+
+    monkeypatch.setattr(coordinator_module, "BdsSaveAdapter", lambda _server: adapter)
+    coordinator = CaptureCoordinator(
+        plugin,
+        raw_store,
+        space_guard=lambda _required: False,
+        space_recovery=lambda required, scheduled: recoveries.append((required, scheduled)) or True,
+    )
+
+    try:
+        assert coordinator.start_capture(scheduled_for="12:00")
+        coordinator.pump()
+
+        assert not coordinator.status().held
+        assert coordinator.status().state == "idle"
+        assert adapter.resume_calls == 1
+        assert recoveries == [(3, "12:00")]
+        assert raw_store.published == []
     finally:
         coordinator.close()

@@ -91,10 +91,10 @@ class RepositoryService:
         self._future = self._executor.submit(self._run_maintenance, mode)
         return True
 
-    def start_pre_capture(self) -> bool:
+    def start_pre_capture(self, *, required_bytes: int = 0) -> bool:
         if self._closed or self.busy:
             return False
-        self._future = self._executor.submit(self._run_pre_capture)
+        self._future = self._executor.submit(self._run_pre_capture, required_bytes)
         return True
 
     def start_verify(self) -> bool:
@@ -118,9 +118,12 @@ class RepositoryService:
         # repo/LOCK.
         self._executor.shutdown(wait=True, cancel_futures=False)
 
-    def _run_pre_capture(self) -> RepositoryJobResult:
+    def _run_pre_capture(self, required_bytes: int) -> RepositoryJobResult:
         with RepositoryLock(self.repo_root):
-            result = self.queue.enforce_before_capture(self.logicalizer.logicalize)
+            result = self.queue.enforce_before_capture(
+                self.logicalizer.logicalize,
+                required_bytes=required_bytes,
+            )
         return RepositoryJobResult(kind="pre_capture", raw_limits=result)
 
     def _run_verify(self) -> RepositoryJobResult:

@@ -38,11 +38,13 @@ class CaptureCoordinator:
         raw_store: RawSnapshotStore,
         *,
         space_guard: Callable[[int], bool] | None = None,
+        space_recovery: Callable[[int, str | None], bool] | None = None,
     ) -> None:
         self._plugin = plugin
         self._adapter = BdsSaveAdapter(plugin.server)
         self._raw_store = raw_store
         self._space_guard = space_guard
+        self._space_recovery = space_recovery
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="endkeep-capture")
         self._state: CaptureState = "idle"
         self._scheduled_for: str | None = None
@@ -54,6 +56,7 @@ class CaptureCoordinator:
         self._future: Future | None = None
         self._manifest: SnapshotManifest | None = None
         self._staged: StagedRawSnapshot | None = None
+        self._space_retry_bytes: int | None = None
         self._closed = False
 
     @property
@@ -80,6 +83,7 @@ class CaptureCoordinator:
         self._manifest = None
         self._staged = None
         self._future = None
+        self._space_retry_bytes = None
 
         hold_started = time.monotonic()
         try:
@@ -149,9 +153,7 @@ class CaptureCoordinator:
             return
 
         if self._space_guard is not None and not self._space_guard(manifest.total_bytes):
-            self._fail_held(
-                f"insufficient free space for {manifest.total_bytes} snapshot bytes while preserving reserve"
-            )
+            self._defer_for_space(manifest.total_bytes)
             return
 
         self._manifest = manifest
@@ -162,6 +164,17 @@ class CaptureCoordinator:
             cancel=self._cancel,
         )
         self._state = "staging"
+
+    def _defer_for_space(self, required_bytes: int) -> None:
+        self._space_retry_bytes = required_bytes
+        if self._resume_after_stage():
+            self._start_space_recovery()
+            return
+
+        self._state = "resume_retry"
+        self._plugin.logger.critical(
+            "CAPTURE FAILURE: insufficient free space and save resume failed; retrying resume before cleanup"
+        )
 
     def _pump_staging(self) -> None:
         future = self._future
@@ -188,6 +201,8 @@ class CaptureCoordinator:
             return
         if self._staged is not None:
             self._start_publish()
+        elif self._space_retry_bytes is not None:
+            self._start_space_recovery()
         else:
             self._reset()
 
@@ -202,6 +217,17 @@ class CaptureCoordinator:
         if self._hold_started > 0:
             self._hold_elapsed = time.monotonic() - self._hold_started
         return True
+
+    def _start_space_recovery(self) -> None:
+        required_bytes = self._space_retry_bytes
+        scheduled_for = self._scheduled_for
+        self._reset()
+        if required_bytes is None:
+            return
+        if self._space_recovery is None or not self._space_recovery(required_bytes, scheduled_for):
+            self._plugin.logger.error(
+                "CAPTURE FAILURE: insufficient free space and emergency raw cleanup could not be scheduled"
+            )
 
     def _start_publish(self) -> None:
         staged = self._staged
@@ -261,3 +287,4 @@ class CaptureCoordinator:
         self._future = None
         self._manifest = None
         self._staged = None
+        self._space_retry_bytes = None

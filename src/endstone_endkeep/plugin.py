@@ -134,6 +134,7 @@ class EndKeepPlugin(Plugin):
             self,
             raw_store,
             space_guard=repository.queue.free_space_allows,
+            space_recovery=self._request_capture_space_recovery,
         )
         clock = EndKeepScheduler(
             config,
@@ -241,6 +242,21 @@ class EndKeepPlugin(Plugin):
         self._pending_capture_scheduled_for = scheduled_for
         if not repository.busy:
             repository.start_pre_capture()
+        return True
+
+    def _request_capture_space_recovery(self, required_bytes: int, scheduled_for: str | None) -> bool:
+        config = self._runtime_config
+        capture = self._capture
+        repository = self._repository
+        if config is None or not config.enabled or capture is None or repository is None:
+            return False
+        if capture.busy or self._pending_capture or repository.busy:
+            return False
+        if not repository.start_pre_capture(required_bytes=required_bytes):
+            return False
+
+        self._pending_capture = True
+        self._pending_capture_scheduled_for = scheduled_for
         return True
 
     def _handle_repository_result(self, result: RepositoryJobResult) -> None:

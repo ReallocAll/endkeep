@@ -67,9 +67,13 @@ class RawQueue:
         self,
         logicalize: Callable[[Path], None],
         *,
+        required_bytes: int = 0,
         now: datetime | None = None,
     ) -> RawLimitResult:
         """Enforce hard backlog/age/free-space limits before accepting another raw."""
+
+        if required_bytes < 0:
+            raise ValueError("required_bytes cannot be negative")
 
         current = now or datetime.now().astimezone()
         logicalized: list[str] = []
@@ -82,7 +86,7 @@ class RawQueue:
             oldest = pending[0]
             too_many = len(pending) >= self.max_pending
             too_old = oldest.captured_at < current - timedelta(days=self.max_age_days)
-            low_space = not self.free_space_allows()
+            low_space = not self.free_space_allows(required_bytes)
             if not (too_many or too_old or low_space):
                 break
 
@@ -99,5 +103,5 @@ class RawQueue:
         return RawLimitResult(
             logicalized=tuple(logicalized),
             dropped=tuple(dropped),
-            blocked_for_space=not self.free_space_allows(),
+            blocked_for_space=not self.free_space_allows(required_bytes),
         )
