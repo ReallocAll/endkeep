@@ -58,7 +58,7 @@ class CaptureCoordinator:
 
     @property
     def busy(self) -> bool:
-        return self._state != "idle"
+        return self._state != "idle" or self._adapter.is_held
 
     def status(self) -> CaptureStatus:
         return CaptureStatus(
@@ -184,8 +184,12 @@ class CaptureCoordinator:
             )
 
     def _pump_resume_retry(self) -> None:
-        if self._resume_after_stage():
+        if not self._resume_after_stage():
+            return
+        if self._staged is not None:
             self._start_publish()
+        else:
+            self._reset()
 
     def _resume_after_stage(self) -> bool:
         try:
@@ -231,9 +235,16 @@ class CaptureCoordinator:
         self._cancel.set()
         resumed = self._adapter.best_effort_resume()
         if not resumed:
-            self._plugin.logger.critical(f"CAPTURE FAILURE: {reason}; best-effort save resume also failed")
-        else:
-            self._plugin.logger.error(f"CAPTURE FAILURE: {reason}")
+            self._plugin.logger.critical(
+                f"CAPTURE FAILURE: {reason}; best-effort save resume failed; retrying save resume"
+            )
+            self._future = None
+            self._manifest = None
+            self._staged = None
+            self._state = "resume_retry"
+            return
+
+        self._plugin.logger.error(f"CAPTURE FAILURE: {reason}")
         self._reset()
 
     def _fail_unheld(self, reason: str) -> None:
