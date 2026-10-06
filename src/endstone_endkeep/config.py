@@ -53,7 +53,6 @@ def _section(mapping: Mapping[str, Any], name: str) -> Mapping[str, Any]:
 @dataclass(frozen=True)
 class CaptureConfig:
     times: tuple[str, ...]
-    query_retries: int
 
 
 @dataclass(frozen=True)
@@ -115,10 +114,6 @@ class EndKeepConfig:
         retention = _section(mapping, "retention")
         storage = _section(mapping, "storage")
 
-        query_retries = capture.get("query_retries", 300)
-        if not isinstance(query_retries, int) or isinstance(query_retries, bool) or query_retries < 0:
-            raise ConfigError("capture.query_retries must be a non-negative integer")
-
         storage_path = storage.get("path")
         if not isinstance(storage_path, str) or not storage_path.strip():
             raise ConfigError("storage.path must be a non-empty path string")
@@ -138,7 +133,7 @@ class EndKeepConfig:
 
         return cls(
             enabled=enabled,
-            capture=CaptureConfig(times=_string_list(capture, "times"), query_retries=query_retries),
+            capture=CaptureConfig(_string_list(capture, "times")),
             maintenance=MaintenanceConfig(_string_list(maintenance, "times")),
             raw=RawConfig(
                 max_pending=_positive_int(raw, "max_pending"),

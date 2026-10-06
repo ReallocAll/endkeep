@@ -30,29 +30,27 @@ class CaptureCoordinator:
     """Main-thread BDS state machine with exact staging/durability on one worker."""
 
     QUERY_TIMEOUT_SECONDS = 15.0
-    QUERY_POLL_SECONDS = 0.05
+    QUERY_RETRY_TICKS = 10
 
     def __init__(
         self,
         plugin: Plugin,
         raw_store: RawSnapshotStore,
         *,
-        query_retries: int = 300,
         space_guard: Callable[[int], bool] | None = None,
         space_recovery: Callable[[int, str | None], bool] | None = None,
     ) -> None:
         self._plugin = plugin
         self._adapter = BdsSaveAdapter(plugin.server)
         self._raw_store = raw_store
-        self._query_retries = query_retries
         self._query_failures = 0
+        self._query_retry_ticks = 0
         self._space_guard = space_guard
         self._space_recovery = space_recovery
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="endkeep-capture")
         self._state: CaptureState = "idle"
         self._scheduled_for: str | None = None
         self._deadline = 0.0
-        self._next_query = 0.0
         self._hold_started = 0.0
         self._hold_elapsed = 0.0
         self._cancel = Event()
@@ -88,6 +86,7 @@ class CaptureCoordinator:
         self._future = None
         self._space_retry_bytes = None
         self._query_failures = 0
+        self._query_retry_ticks = 0
 
         hold_started = time.monotonic()
         try:
@@ -100,7 +99,6 @@ class CaptureCoordinator:
         now = time.monotonic()
         self._hold_started = hold_started
         self._deadline = now + self.QUERY_TIMEOUT_SECONDS
-        self._next_query = now
         self._state = "querying"
         return True
 
@@ -136,14 +134,15 @@ class CaptureCoordinator:
         if now >= self._deadline:
             self._fail_held(f"save query timed out after {self._query_failures} unsuccessful attempt(s)")
             return
-        if now < self._next_query:
-            return
-        self._next_query = now + self.QUERY_POLL_SECONDS
+        if self._query_retry_ticks > 0:
+            self._query_retry_ticks -= 1
+            if self._query_retry_ticks > 0:
+                return
 
         try:
             capture = self._adapter.query()
         except Exception as exc:
-            self._retry_query_or_fail(f"save query raised: {exc}")
+            self._schedule_query_retry(f"save query raised: {exc}")
             return
 
         try:
@@ -152,7 +151,7 @@ class CaptureCoordinator:
             # Endstone's dispatch_command() return value reflects command success,
             # not whether the vanilla command reached BDS. A false result is expected
             # while save query is waiting for the held save to become ready.
-            self._retry_query_or_fail("save query did not return a valid manifest")
+            self._schedule_query_retry("save query did not return a valid manifest")
             return
 
         if self._space_guard is not None and not self._space_guard(manifest.total_bytes):
@@ -168,11 +167,9 @@ class CaptureCoordinator:
         )
         self._state = "staging"
 
-    def _retry_query_or_fail(self, reason: str) -> None:
+    def _schedule_query_retry(self, _reason: str) -> None:
         self._query_failures += 1
-        if self._query_failures <= self._query_retries:
-            return
-        self._fail_held(f"{reason}; retry limit exhausted after {self._query_failures} unsuccessful attempt(s)")
+        self._query_retry_ticks = self.QUERY_RETRY_TICKS
 
     def _defer_for_space(self, required_bytes: int) -> None:
         self._space_retry_bytes = required_bytes
@@ -290,7 +287,6 @@ class CaptureCoordinator:
         self._state = "idle"
         self._scheduled_for = None
         self._deadline = 0.0
-        self._next_query = 0.0
         self._hold_started = 0.0
         self._hold_elapsed = 0.0
         self._future = None
@@ -298,3 +294,4 @@ class CaptureCoordinator:
         self._staged = None
         self._space_retry_bytes = None
         self._query_failures = 0
+        self._query_retry_ticks = 0

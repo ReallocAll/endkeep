@@ -77,7 +77,6 @@ The plugin writes `plugins/endkeep/config.toml` on first start.
 enabled = true
 
 [capture]
-query_retries = 300
 times = [
     "12:00",
     "16:30",
@@ -108,9 +107,8 @@ path = "backups"
 min_free_space_gib = 5
 ```
 
-`capture.query_retries` is the number of additional `save query` attempts allowed after the first unsuccessful
-attempt. The default is 300; `0` disables additional retries. The existing 15-second query deadline remains a
-hard safety cap. Older configuration files that omit this field automatically use 300.
+Transient `save query` misses are retried internally every 10 server ticks. The capture still has a fixed
+15-second query deadline, after which EndKeep enters the fail-safe `save resume` recovery path.
 
 Retention keeps a snapshot when it is **within `keep_days` OR among the last `keep_last`**.
 The raw hard limits are safety limits: if the queue cannot be logicalized and a hard limit must be

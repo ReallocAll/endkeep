@@ -47,6 +47,7 @@ class _FakeAdapter:
         self.query_messages = query_messages
         self.query_dispatched = query_dispatched
         self.resume_failures = resume_failures
+        self.query_calls = 0
         self.resume_calls = 0
 
     @property
@@ -58,6 +59,7 @@ class _FakeAdapter:
         return SimpleNamespace(dispatched=True, messages=(), errors=())
 
     def query(self):
+        self.query_calls += 1
         if self.query_error is not None:
             raise self.query_error
         return SimpleNamespace(dispatched=self.query_dispatched, messages=self.query_messages, errors=())
@@ -91,22 +93,25 @@ def _coordinator(
     monkeypatch,
     tmp_path: Path,
     adapter: _FakeAdapter,
-    *,
-    query_retries: int = 300,
 ) -> tuple[CaptureCoordinator, _Plugin, _RawStore]:
     plugin = _Plugin()
     raw_store = _RawStore(tmp_path / "raw" / "snapshot")
     monkeypatch.setattr(coordinator_module, "BdsSaveAdapter", lambda _server: adapter)
-    coordinator = CaptureCoordinator(plugin, raw_store, query_retries=query_retries)
+    coordinator = CaptureCoordinator(plugin, raw_store)
     return coordinator, plugin, raw_store
 
 
 def test_held_failure_retries_resume_and_blocks_new_capture(monkeypatch, tmp_path: Path) -> None:
     adapter = _FakeAdapter(query_error=RuntimeError("query failed"), resume_failures=1)
-    coordinator, plugin, _raw_store = _coordinator(monkeypatch, tmp_path, adapter, query_retries=0)
+    coordinator, plugin, _raw_store = _coordinator(monkeypatch, tmp_path, adapter)
     try:
         assert coordinator.start_capture(scheduled_for=None)
 
+        coordinator.pump()
+        assert coordinator.status().state == "querying"
+        assert coordinator.status().held
+
+        coordinator._deadline = 0.0
         coordinator.pump()
 
         assert coordinator.status().state == "resume_retry"
@@ -196,7 +201,7 @@ def test_space_shortage_resumes_and_requests_cleanup_before_fresh_capture(monkey
 
 def test_false_dispatch_result_is_retried_instead_of_failing_capture(monkeypatch, tmp_path: Path) -> None:
     adapter = _FakeAdapter(query_dispatched=False)
-    coordinator, _plugin, _raw_store = _coordinator(monkeypatch, tmp_path, adapter, query_retries=1)
+    coordinator, _plugin, _raw_store = _coordinator(monkeypatch, tmp_path, adapter)
     try:
         assert coordinator.start_capture(scheduled_for="20:30")
 
@@ -206,12 +211,17 @@ def test_false_dispatch_result_is_retried_instead_of_failing_capture(monkeypatch
         assert coordinator.status().held
         assert adapter.resume_calls == 0
 
-        coordinator._next_query = 0.0
-        coordinator.pump()
+        assert adapter.query_calls == 1
 
-        assert coordinator.status().state == "idle"
-        assert not coordinator.status().held
-        assert adapter.resume_calls == 1
+        for _ in range(9):
+            coordinator.pump()
+        assert adapter.query_calls == 1
+
+        coordinator.pump()
+        assert adapter.query_calls == 2
+        assert coordinator.status().state == "querying"
+        assert coordinator.status().held
+        assert adapter.resume_calls == 0
     finally:
         coordinator.close()
 
@@ -221,7 +231,7 @@ def test_valid_manifest_is_accepted_even_when_dispatch_returns_false(monkeypatch
         query_dispatched=False,
         query_messages=("level/level.dat:3",),
     )
-    coordinator, _plugin, _raw_store = _coordinator(monkeypatch, tmp_path, adapter, query_retries=0)
+    coordinator, _plugin, _raw_store = _coordinator(monkeypatch, tmp_path, adapter)
     try:
         assert coordinator.start_capture(scheduled_for="20:35")
 
