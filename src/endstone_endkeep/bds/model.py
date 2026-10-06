@@ -36,8 +36,4 @@ class SnapshotManifest:
     @property
     def sidecar_entries(self) -> tuple[SnapshotEntry, ...]:
         db_prefix = PurePosixPath(self.world_name) / "db"
-        return tuple(
-            entry
-            for entry in self.entries
-            if entry.path != db_prefix and db_prefix not in entry.path.parents
-        )
+        return tuple(entry for entry in self.entries if entry.path != db_prefix and db_prefix not in entry.path.parents)
