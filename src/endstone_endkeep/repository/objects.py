@@ -166,22 +166,33 @@ class ObjectStore:
             self.verify_path(incoming, metadata)
 
             target = self.path_for(metadata.logical_sha256)
+            shard_created = not target.parent.exists()
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                existing = self._compressed_digest(target)
-                if (
-                    existing[0] != metadata.compressed_sha256
-                    or existing[1] != metadata.compressed_bytes
-                ):
+                existing = self._inspect_path(target)
+                if existing[0] != metadata.logical_sha256 or existing[2] != metadata.logical_bytes:
                     raise ObjectStoreError(
-                        "logical object already exists with different compressed bytes; "
+                        "logical object path contains different logical content; "
                         "refusing to overwrite immutable object"
                     )
+                # Logical SHA256 is the object identity. A repository may outlive a
+                # zstd upgrade or compression-setting change, so byte-identical
+                # compressed frames are deliberately not required for reuse.
+                metadata = ObjectMetadata(
+                    logical_sha256=existing[0],
+                    compressed_sha256=existing[1],
+                    logical_bytes=existing[2],
+                    compressed_bytes=existing[3],
+                    codec="zstd",
+                    compression_level=metadata.compression_level,
+                )
                 incoming.unlink()
             else:
                 os.rename(incoming, target)
                 self.fault_hook("after_object_rename")
                 self._fsync_directory(target.parent)
+                if shard_created:
+                    self._fsync_directory(self.objects_root)
                 self.fault_hook("after_object_dir_fsync")
             return metadata, result
         except Exception:
@@ -209,8 +220,20 @@ class ObjectStore:
     def verify(self, metadata: ObjectMetadata) -> None:
         self.verify_path(self.path_for(metadata.logical_sha256), metadata)
 
+    @classmethod
+    def verify_path(cls, path: Path, metadata: ObjectMetadata) -> None:
+        actual = cls._inspect_path(path)
+        expected = (
+            metadata.logical_sha256,
+            metadata.compressed_sha256,
+            metadata.logical_bytes,
+            metadata.compressed_bytes,
+        )
+        if actual != expected:
+            raise ObjectStoreError(f"object verification failed for {path}")
+
     @staticmethod
-    def verify_path(path: Path, metadata: ObjectMetadata) -> None:
+    def _inspect_path(path: Path) -> tuple[str, str, int, int]:
         compressed_hasher = hashlib.sha256()
         logical_hasher = hashlib.sha256()
         compressed_bytes = 0
@@ -236,33 +259,12 @@ class ObjectStore:
             finally:
                 reader.close()
 
-        actual = (
+        return (
             logical_hasher.hexdigest(),
             compressed_hasher.hexdigest(),
             logical_bytes,
             compressed_bytes,
         )
-        expected = (
-            metadata.logical_sha256,
-            metadata.compressed_sha256,
-            metadata.logical_bytes,
-            metadata.compressed_bytes,
-        )
-        if actual != expected:
-            raise ObjectStoreError(f"object verification failed for {path}")
-
-    @staticmethod
-    def _compressed_digest(path: Path) -> tuple[str, int]:
-        hasher = hashlib.sha256()
-        size = 0
-        with path.open("rb") as source:
-            while True:
-                chunk = source.read(1024 * 1024)
-                if not chunk:
-                    break
-                hasher.update(chunk)
-                size += len(chunk)
-        return hasher.hexdigest(), size
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
