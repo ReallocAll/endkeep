@@ -200,12 +200,9 @@ class CaptureCoordinator:
 
         if staged is not None:
             self._plugin.logger.info(
-                "Snapshot %s captured: files=%d bytes=%d hold-stage-copy=%.3fs raw=%s",
-                staged.snapshot_id,
-                staged.stage.files,
-                staged.stage.bytes_copied,
-                staged.stage.elapsed_seconds,
-                final_path,
+                f"Snapshot {staged.snapshot_id} captured: files={staged.stage.files} "
+                f"bytes={staged.stage.bytes_copied} stage_copy={staged.stage.elapsed_seconds:.3f}s "
+                f"raw={final_path}"
             )
         self._reset()
 
