@@ -76,7 +76,7 @@ class StartupRecovery:
         if self.manifests.head_path.exists():
             try:
                 head_generation = int(self.manifests.head_path.read_text(encoding="ascii").strip())
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 head_generation = None
 
         generations = self._generation_numbers()
