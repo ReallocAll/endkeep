@@ -129,9 +129,7 @@ class ManifestStore:
             raise ManifestError(f"cannot load manifest generation {generation}") from exc
         manifest = RepositoryManifest.from_dict(raw)
         if manifest.generation != generation:
-            raise ManifestError(
-                f"manifest generation mismatch: filename={generation} body={manifest.generation}"
-            )
+            raise ManifestError(f"manifest generation mismatch: filename={generation} body={manifest.generation}")
         return manifest
 
     def path_for(self, generation: int) -> Path:
