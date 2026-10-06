@@ -40,13 +40,6 @@ def build(output: Path) -> None:
 
     embedded = pprint.pformat(sources, width=120, sort_dicts=True)
     script = f'''#!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.14"
-# dependencies = [
-#   "amulet-leveldb==3.0.7a0",
-#   "zstandard>=0.23,<1",
-# ]
-# ///
 """Standalone EndKeep offline repository management tool.
 
 Generated from the EndKeep source tree. It does not require the EndKeep plugin
