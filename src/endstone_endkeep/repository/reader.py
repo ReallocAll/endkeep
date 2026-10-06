@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import ExitStack
-from typing import Iterator
 
 from endstone_endkeep.logical.format import iter_base, iter_delta
 from endstone_endkeep.logical.merge import apply_delta

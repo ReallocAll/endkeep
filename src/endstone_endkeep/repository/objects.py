@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import BinaryIO, Callable, Generator, TypeVar
+from typing import BinaryIO, TypeVar
 
 import zstandard as zstd
 
@@ -194,7 +195,7 @@ class ObjectStore:
         return self.objects_root / logical_sha256[:2] / f"{logical_sha256}.zst"
 
     @contextmanager
-    def open_logical(self, metadata: ObjectMetadata) -> Generator[BinaryIO, None, None]:
+    def open_logical(self, metadata: ObjectMetadata) -> Generator[BinaryIO]:
         if metadata.codec != "zstd":
             raise ObjectStoreError(f"unsupported object codec: {metadata.codec}")
         path = self.path_for(metadata.logical_sha256)

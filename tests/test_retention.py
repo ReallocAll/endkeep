@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from endstone_endkeep.repository.manifest import RepositoryManifest, SnapshotNode
 from endstone_endkeep.repository.objects import ObjectMetadata
@@ -25,7 +25,7 @@ def _node(index: int, captured_at: datetime, node_type: str) -> SnapshotNode:
 
 
 def test_retention_is_union_of_age_and_last_n() -> None:
-    now = datetime(2026, 10, 6, 12, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 6, 12, tzinfo=UTC)
     chain = tuple(
         _node(index, now - timedelta(days=9 - index), "base" if index == 0 else "delta")
         for index in range(10)

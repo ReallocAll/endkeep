@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Callable
 
 from endstone_endkeep.staging.metadata import load_raw_snapshot
 

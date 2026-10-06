@@ -119,7 +119,7 @@ class RawSnapshotStore:
     @classmethod
     def _fsync_tree(cls, root: Path) -> None:
         directories: list[Path] = []
-        for current, dirnames, filenames in os.walk(root):
+        for current, _dirnames, filenames in os.walk(root):
             current_path = Path(current)
             directories.append(current_path)
             for filename in filenames:

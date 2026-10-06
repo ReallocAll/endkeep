@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import override
 
 from endstone.command import Command, CommandSender
 from endstone.plugin import Plugin
-from typing_extensions import override
 
 from .config import ConfigError, EndKeepConfig
 from .coordinator import CaptureCoordinator
@@ -23,9 +23,9 @@ class EndKeepPlugin(Plugin):
         "backup": {
             "description": "Manage EndKeep backups",
             "usages": [
-                "/backup <status|create|list|verify|reload>",
-                "/backup maintenance",
-                "/backup maintenance full",
+                "/backup (status|create|list|verify|reload)<action: EndKeepBackupAction>",
+                "/backup (maintenance)<action: EndKeepMaintenanceAction>",
+                "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)<mode: EndKeepMaintenanceMode>",
             ],
             "permissions": ["endkeep.admin"],
         }
