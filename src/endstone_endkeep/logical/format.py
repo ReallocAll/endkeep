@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import BinaryIO, Iterable, Iterator, Literal
+from typing import BinaryIO, Literal
 
 
 BASE_MAGIC = b"ENDKEEP\x00BASE\x01"

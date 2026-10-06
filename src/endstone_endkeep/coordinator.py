@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Literal
 
 from .bds.commands import BdsSaveAdapter
 from .bds.model import SnapshotManifest

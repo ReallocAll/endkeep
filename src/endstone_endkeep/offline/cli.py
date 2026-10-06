@@ -4,8 +4,8 @@ import argparse
 import json
 import os
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from ..logical.amulet_reader import iter_visible_state, write_fresh_leveldb
 from ..logical.merge import hash_state

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 
 @contextmanager
-def iter_visible_state(db_path: Path) -> Generator[Iterator[tuple[bytes, bytes]], None, None]:
+def iter_visible_state(db_path: Path) -> Generator[Iterator[tuple[bytes, bytes]]]:
     """Open Mojang LevelDB through Amulet and stream its sorted visible KV state."""
 
     from amulet.leveldb import LevelDB

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 
 class ConfigError(ValueError):
@@ -118,7 +119,11 @@ class EndKeepConfig:
             raise ConfigError("storage.path must be a non-empty path string")
 
         compression_level = logical.get("compression_level")
-        if not isinstance(compression_level, int) or isinstance(compression_level, bool) or not -7 <= compression_level <= 22:
+        if (
+            not isinstance(compression_level, int)
+            or isinstance(compression_level, bool)
+            or not -7 <= compression_level <= 22
+        ):
             raise ConfigError("logical.compression_level must be an integer between -7 and 22")
 
         keep_days = _positive_int(retention, "keep_days", allow_zero=True)
