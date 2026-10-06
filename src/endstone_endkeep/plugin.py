@@ -24,8 +24,7 @@ class EndKeepPlugin(Plugin):
             "description": "Manage EndKeep backups",
             "usages": [
                 "/backup (status|create|list|verify|reload)<action: EndKeepBackupAction>",
-                "/backup (maintenance)<action: EndKeepMaintenanceAction>",
-                "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)<mode: EndKeepMaintenanceMode>",
+                "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
             ],
             "permissions": ["endkeep.admin"],
         }
