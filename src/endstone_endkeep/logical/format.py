@@ -73,7 +73,6 @@ def _read_uvarint(stream: BinaryIO, *, first: bytes | None = None) -> int:
         value_part = current & 0x7F
         if shift >= 64 and value_part:
             raise LogicalFormatError("varint exceeds 64-bit range")
-        shift_value = value_part << shift
         if not current & 0x80:
             value = sum((part & 0x7F) << (7 * index) for index, part in enumerate(encoded))
             if encode_uvarint(value) != bytes(encoded):
