@@ -11,7 +11,6 @@ from typing import BinaryIO, TypeVar
 
 import zstandard as zstd
 
-
 _T = TypeVar("_T")
 
 

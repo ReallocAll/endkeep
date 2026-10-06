@@ -10,7 +10,6 @@ from endstone_endkeep.bds.model import SnapshotEntry
 
 from .format import LogicalFormatError, _read_exact, _read_uvarint, encode_uvarint
 
-
 SIDECAR_MAGIC = b"ENDKEEP\x00SIDECAR\x01"
 
 

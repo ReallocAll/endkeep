@@ -8,14 +8,13 @@ from typing import Literal
 
 from .gc import GcResult, collect_orphan_objects
 from .lock import RepositoryLock
-from .logicalize import LogicalizeResult, Logicalizer
+from .logicalize import Logicalizer, LogicalizeResult
 from .manifest import ManifestStore
 from .objects import ObjectStore
 from .raw_queue import RawLimitResult, RawQueue
 from .retention import RetentionDecision, select_retention
 from .rollover import Rollover, RolloverResult
 from .verify import RepositoryVerifier, VerifyReport
-
 
 MaintenanceMode = Literal["FULL", "LOGIC_ONLY"]
 JobKind = Literal["maintenance", "pre_capture", "verify"]

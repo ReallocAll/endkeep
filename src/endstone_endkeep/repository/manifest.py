@@ -8,7 +8,6 @@ from typing import Literal
 
 from .objects import ObjectMetadata
 
-
 NodeType = Literal["base", "delta"]
 
 

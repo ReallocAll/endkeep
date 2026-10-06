@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .manifest import ManifestStore, RepositoryManifest
 
-
 FaultHook = Callable[[str], None]
 
 

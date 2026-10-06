@@ -11,7 +11,6 @@ from endstone_endkeep.staging.metadata import load_raw_snapshot
 from .manifest import ManifestError, ManifestStore, RepositoryManifest
 from .objects import ObjectStore
 
-
 _MANIFEST_RE = re.compile(r"^manifest-(\d{8})\.json$")
 
 

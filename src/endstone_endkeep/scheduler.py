@@ -10,7 +10,6 @@ from typing import Literal
 
 from .config import EndKeepConfig
 
-
 ScheduleKind = Literal["capture", "maintenance"]
 MaintenanceMode = Literal["FULL", "LOGIC_ONLY"]
 

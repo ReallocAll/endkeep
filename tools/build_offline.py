@@ -4,7 +4,6 @@ import argparse
 import pprint
 from pathlib import Path
 
-
 MODULES = (
     "bds/model.py",
     "logical/format.py",

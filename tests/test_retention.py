@@ -6,7 +6,6 @@ from endstone_endkeep.repository.manifest import RepositoryManifest, SnapshotNod
 from endstone_endkeep.repository.objects import ObjectMetadata
 from endstone_endkeep.repository.retention import select_retention
 
-
 _META = ObjectMetadata("a" * 64, "b" * 64, 1, 1, "zstd", 6)
 
 
