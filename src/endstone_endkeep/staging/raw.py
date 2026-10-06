@@ -141,15 +141,19 @@ class RawSnapshotStore:
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         try:
-            fd = os.open(path, os.O_RDONLY)
+            fd = os.open(path, flags)
         except OSError:
+            if os.name == "posix":
+                raise
             return
         try:
             try:
                 os.fsync(fd)
             except OSError:
+                if os.name == "posix":
+                    raise
                 # Directory fsync is not uniformly supported outside POSIX.
-                pass
         finally:
             os.close(fd)

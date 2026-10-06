@@ -164,17 +164,26 @@ def _fsync_tree(root: Path) -> None:
             finally:
                 os.close(fd)
     for directory in reversed(directories):
+        _fsync_directory(directory)
+    _fsync_directory(root.parent)
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        if os.name == "posix":
+            raise
+        return
+    try:
         try:
-            fd = os.open(directory, os.O_RDONLY)
+            os.fsync(fd)
         except OSError:
-            continue
-        try:
-            try:
-                os.fsync(fd)
-            except OSError:
-                pass
-        finally:
-            os.close(fd)
+            if os.name == "posix":
+                raise
+    finally:
+        os.close(fd)
 
 
 def build_parser() -> argparse.ArgumentParser:
