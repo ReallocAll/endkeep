@@ -67,6 +67,11 @@ class Logicalizer:
                 node, diff_counts = self._create_base(raw, db_path)
                 new_chain = (node,)
             else:
+                if current_manifest.chain[0].world_name != raw.manifest.world_name:
+                    raise ValueError(
+                        f"raw snapshot world {raw.manifest.world_name!r} does not match repository "
+                        f"world {current_manifest.chain[0].world_name!r}"
+                    )
                 if any(existing.snapshot == raw.snapshot_id for existing in current_manifest.chain):
                     raise ValueError(f"snapshot already committed: {raw.snapshot_id}")
                 node, diff_counts = self._create_delta(raw, db_path, current_manifest)
@@ -111,6 +116,7 @@ class Logicalizer:
         return (
             SnapshotNode(
                 snapshot=raw.snapshot_id,
+                world_name=raw.manifest.world_name,
                 type="base",
                 object=object_meta,
                 sidecar=sidecar_meta,
@@ -142,6 +148,7 @@ class Logicalizer:
         return (
             SnapshotNode(
                 snapshot=raw.snapshot_id,
+                world_name=raw.manifest.world_name,
                 type="delta",
                 object=object_meta,
                 sidecar=sidecar_meta,
