@@ -6,18 +6,30 @@ from pathlib import Path
 import pytest
 
 import endstone_endkeep.offline.cli as offline_cli
+from endstone_endkeep.repository.lock import RepositoryLock
+from endstone_endkeep.repository.manifest import ManifestStore
+from endstone_endkeep.repository.objects import ObjectStore
 from endstone_endkeep.staging.raw import RawSnapshotStore
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX durability contract")
-def test_raw_directory_fsync_failure_is_fatal(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "fsync_directory",
+    [
+        RawSnapshotStore._fsync_directory,
+        ObjectStore._fsync_directory,
+        ManifestStore.fsync_directory,
+        RepositoryLock._fsync_directory,
+    ],
+)
+def test_directory_fsync_failure_is_fatal_on_posix(tmp_path: Path, monkeypatch, fsync_directory) -> None:
     def fail_fsync(_fd: int) -> None:
         raise OSError("injected fsync failure")
 
     monkeypatch.setattr(os, "fsync", fail_fsync)
 
     with pytest.raises(OSError, match="injected fsync failure"):
-        RawSnapshotStore._fsync_directory(tmp_path)
+        fsync_directory(tmp_path)
 
 
 def test_restore_fsync_tree_persists_destination_parent(tmp_path: Path, monkeypatch) -> None:

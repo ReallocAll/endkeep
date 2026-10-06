@@ -169,9 +169,12 @@ class ManifestStore:
 
     @staticmethod
     def fsync_directory(path: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         try:
-            fd = os.open(path, os.O_RDONLY)
+            fd = os.open(path, flags)
         except OSError:
+            if os.name == "posix":
+                raise
             return
         try:
             os.fsync(fd)
