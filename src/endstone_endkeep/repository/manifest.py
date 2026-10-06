@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +14,16 @@ NodeType = Literal["base", "delta"]
 
 class ManifestError(RuntimeError):
     """Raised when repository manifest state is missing, malformed, or inconsistent."""
+
+
+def snapshot_order_key(captured_at: str, snapshot: str) -> tuple[float, str]:
+    try:
+        captured = datetime.fromisoformat(captured_at)
+    except ValueError as exc:
+        raise ManifestError(f"invalid captured_at timestamp: {captured_at!r}") from exc
+    if captured.tzinfo is None:
+        captured = captured.astimezone()
+    return captured.timestamp(), snapshot
 
 
 @dataclass(frozen=True)
@@ -84,6 +95,13 @@ class RepositoryManifest:
         world_names = {node.world_name for node in self.chain}
         if "" in world_names or len(world_names) != 1:
             raise ManifestError("repository chain must contain exactly one non-empty world_name")
+
+        previous_order: tuple[float, str] | None = None
+        for node in self.chain:
+            order = snapshot_order_key(node.captured_at, node.snapshot)
+            if previous_order is not None and order <= previous_order:
+                raise ManifestError("repository chain is not in chronological snapshot order")
+            previous_order = order
 
     def to_dict(self) -> dict:
         return {

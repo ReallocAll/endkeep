@@ -179,6 +179,9 @@ class RepositoryService:
                 committed.append(self.logicalizer.logicalize(item.path))
             except Exception as exc:
                 failures.append(DrainFailure(item.snapshot_id, str(exc)))
+                # Repository chain order is authoritative. Never skip a failed
+                # older raw and commit a newer snapshot ahead of it.
+                break
         return committed, failures
 
     def _cleanup_stale_work(self) -> None:

@@ -12,7 +12,7 @@ from endstone_endkeep.logical.sidecar import SidecarStats, write_sidecar
 from endstone_endkeep.staging.clone import clone_world, remove_processing_clone
 from endstone_endkeep.staging.metadata import RawSnapshotMetadata, load_raw_snapshot
 
-from .manifest import ManifestStore, RepositoryManifest, SnapshotNode
+from .manifest import ManifestStore, RepositoryManifest, SnapshotNode, snapshot_order_key
 from .objects import ObjectMetadata, ObjectStore
 from .reader import RepositoryReader
 from .transaction import RepositoryTransaction
@@ -59,6 +59,16 @@ class Logicalizer:
         started = time.monotonic()
         raw = load_raw_snapshot(raw_path)
         current_manifest = self.manifests.load_current()
+
+        if current_manifest is not None:
+            tail = current_manifest.chain[-1]
+            if snapshot_order_key(raw.captured_at, raw.snapshot_id) <= snapshot_order_key(
+                tail.captured_at,
+                tail.snapshot,
+            ):
+                raise ValueError(
+                    f"raw snapshot {raw.snapshot_id} is not newer than repository tail {tail.snapshot}"
+                )
 
         clone_world(raw.path, raw.manifest.world_name, self.work_root, raw.snapshot_id)
         db_path = self.work_root / raw.snapshot_id / raw.manifest.world_name / "db"
