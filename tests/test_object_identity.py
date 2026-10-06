@@ -27,9 +27,7 @@ def test_existing_logical_object_reuses_nonidentical_zstd_frame(tmp_path: Path) 
     existing_frame = zstd.ZstdCompressor(level=1, write_checksum=True).compress(payload)
     target.write_bytes(existing_frame)
 
-    metadata, _stats = store.create(
-        lambda stream: write_base(stream, [(b"key", b"value" * 4096)])
-    )
+    metadata, _stats = store.create(lambda stream: write_base(stream, [(b"key", b"value" * 4096)]))
 
     assert metadata.logical_sha256 == logical_sha
     assert metadata.compressed_sha256 == hashlib.sha256(existing_frame).hexdigest()
