@@ -1,3 +1,5 @@
 """EndKeep crash-safe logical incremental backup plugin."""
 
-__all__: list[str] = []
+from .plugin import EndKeepPlugin
+
+__all__ = ["EndKeepPlugin"]
