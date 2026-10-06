@@ -209,9 +209,7 @@ class CaptureCoordinator:
         try:
             final_path = future.result()
         except Exception as exc:
-            self._plugin.logger.error(
-                f"CAPTURE FAILURE: raw durability/publication failed after resume: {exc}"
-            )
+            self._plugin.logger.error(f"CAPTURE FAILURE: raw durability/publication failed after resume: {exc}")
             self._reset()
             return
 
