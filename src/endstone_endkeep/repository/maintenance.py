@@ -61,6 +61,7 @@ class RepositoryService:
         min_free_space_gib: int,
         keep_days: int,
         keep_last: int,
+        verify_mode: str,
         tracker: ProgressTracker | None = None,
     ) -> None:
         self.storage_root = storage_root
@@ -80,6 +81,9 @@ class RepositoryService:
         )
         self.keep_days = keep_days
         self.keep_last = keep_last
+        if verify_mode not in ("normal", "deep"):
+            raise ValueError(f"invalid FULL verification mode: {verify_mode}")
+        self.verify_mode = verify_mode
         self.tracker = tracker or ProgressTracker()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="endkeep-repository")
         self._future: Future[RepositoryJobResult] | None = None
@@ -347,8 +351,43 @@ class RepositoryService:
                     self._checkpoint()
 
                 self._cleanup_stale_work()
-                self.tracker.update(stage="Verify", detail="checking repository structure")
-                verify = RepositoryVerifier(self.manifests, self.objects).verify(deep=False)
+                verifier = RepositoryVerifier(self.manifests, self.objects)
+                if self.verify_mode == "deep":
+                    object_done = 0
+
+                    def object_progress(_node, role, _metadata, current: int, total: int) -> None:
+                        nonlocal object_done
+                        self._checkpoint()
+                        if current == total:
+                            object_done += 1
+                        self.tracker.update(
+                            stage="Verify",
+                            current=object_done,
+                            total=None,
+                            unit="objects",
+                            detail=f"deep verifying {role.lower()} object",
+                        )
+
+                    def state_progress(node, current: int, total: int) -> None:
+                        self._checkpoint()
+                        self.tracker.update(
+                            stage="Verify",
+                            current=current,
+                            total=total,
+                            unit="records",
+                            snapshot=node.snapshot,
+                            detail="deep verifying logical state",
+                        )
+
+                    self.tracker.update(stage="Verify", detail="deep verifying repository")
+                    verify = verifier.verify(
+                        deep=True,
+                        object_progress=object_progress,
+                        state_progress=state_progress,
+                    )
+                else:
+                    self.tracker.update(stage="Verify", detail="checking repository structure")
+                    verify = verifier.verify(deep=False)
                 self._checkpoint()
 
             self.tracker.update(stage="Finalize", detail="maintenance complete")

@@ -68,7 +68,7 @@ Maintenance:
 `LOGIC_ONLY` drains all pending raw snapshots into the repository in timestamp order.
 
 `FULL` first performs the same drain, then applies retention, any required logical rollover,
-orphan-object GC, stale work cleanup, and structural repository verification.
+orphan-object GC, stale work cleanup, and repository verification at the configured `verify.mode`.
 
 Missed schedule times are not replayed later. If a maintenance window arrives while repository work
 is already active, EndKeep coalesces it into at most one durable pending maintenance slot instead of
@@ -139,9 +139,10 @@ to the operating-system scheduler. On startup, missing configuration keys are re
 the packaged defaults; existing values and unknown keys are preserved. Existing invalid values fail
 configuration validation instead of being silently overwritten.
 
-`verify.mode` controls manual `/backup verify`: `normal` (default) performs structural checks,
-while `deep` additionally verifies immutable object content and replays every retained logical state.
-FULL maintenance always keeps its built-in structural verification regardless of this setting.
+`verify.mode` controls the verification performed at the end of FULL maintenance. `normal` (default)
+performs structural checks, while `deep` additionally verifies immutable object content and replays
+every retained logical state. Manual verification is explicit: `/backup verify` always performs normal
+verification and `/backup verify deep` requests deep verification.
 
 ## Administrator commands
 
@@ -154,6 +155,7 @@ All `/backup` commands require `endkeep.admin` and are OP/console-only by defaul
 /backup maintenance
 /backup maintenance full
 /backup verify
+/backup verify deep
 /backup cancel
 /backup reload
 ```

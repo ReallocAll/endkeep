@@ -168,7 +168,10 @@ class WorkerApplication:
         }
 
     @staticmethod
-    def _normalize_settings(raw_settings: dict[str, Any]) -> dict[str, int]:
+    def _normalize_settings(raw_settings: dict[str, Any]) -> dict[str, Any]:
+        verify_mode = str(raw_settings["verify_mode"])
+        if verify_mode not in ("normal", "deep"):
+            raise ValueError(f"invalid FULL verification mode: {verify_mode}")
         return {
             "compression_level": int(raw_settings["compression_level"]),
             "compression_threads": int(raw_settings["compression_threads"]),
@@ -177,9 +180,10 @@ class WorkerApplication:
             "min_free_space_gib": int(raw_settings["min_free_space_gib"]),
             "keep_days": int(raw_settings["keep_days"]),
             "keep_last": int(raw_settings["keep_last"]),
+            "verify_mode": verify_mode,
         }
 
-    def _apply_settings_locked(self, settings: dict[str, int]) -> dict[str, Any]:
+    def _apply_settings_locked(self, settings: dict[str, Any]) -> dict[str, Any]:
         if self.service is not None:
             self.service.close()
 
@@ -192,6 +196,7 @@ class WorkerApplication:
             min_free_space_gib=settings["min_free_space_gib"],
             keep_days=settings["keep_days"],
             keep_last=settings["keep_last"],
+            verify_mode=settings["verify_mode"],
             tracker=self.tracker,
         )
         try:

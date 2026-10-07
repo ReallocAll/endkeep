@@ -24,7 +24,8 @@ class EndKeepPlugin(Plugin):
         "backup": {
             "description": "Manage EndKeep backups",
             "usages": [
-                "/backup (status|create|list|verify|cancel|reload)<action: EndKeepBackupAction>",
+                "/backup (status|create|list|cancel|reload)<action: EndKeepBackupAction>",
+                "/backup (verify)<action: EndKeepVerifyAction> (deep)[mode: EndKeepVerifyMode]",
                 "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
             ],
             "permissions": ["endkeep.admin"],
@@ -96,7 +97,10 @@ class EndKeepPlugin(Plugin):
             self._command_maintenance(sender, full=full)
             return True
         if action == "verify":
-            self._command_verify(sender)
+            deep = len(args) == 2 and args[1] == "deep"
+            if len(args) > 2 or (len(args) == 2 and not deep):
+                return False
+            self._command_verify(sender, deep=deep)
             return True
         if action == "cancel":
             self._command_cancel(sender)
@@ -133,6 +137,7 @@ class EndKeepPlugin(Plugin):
             "min_free_space_gib": config.storage.min_free_space_gib,
             "keep_days": config.retention.keep_days,
             "keep_last": config.retention.keep_last,
+            "verify_mode": config.verify.mode,
         }
         recovery = repository.configure(settings)
 
@@ -510,7 +515,8 @@ class EndKeepPlugin(Plugin):
         verify = result.get("verify")
         if isinstance(verify, dict):
             self.logger.info(
-                f"Structural verify: generation={verify.get('generation')} "
+                f"{'Deep' if verify.get('deep') else 'Structural'} verify: "
+                f"generation={verify.get('generation')} "
                 f"snapshots={verify.get('snapshots')} orphans={verify.get('orphan_objects')}"
             )
 
@@ -572,7 +578,7 @@ class EndKeepPlugin(Plugin):
         settings_text = "deferred" if worker_status.get("settings_deferred") else "active"
         sender.send_message(
             f"Worker: pid={worker.get('pid')} version={version_text} "
-            f"priority={priority_text} verify={config.verify.mode} settings={settings_text}"
+            f"priority={priority_text} full_verify={config.verify.mode} settings={settings_text}"
         )
 
     @staticmethod
@@ -684,18 +690,16 @@ class EndKeepPlugin(Plugin):
             return
         sender.send_message(f"{mode} maintenance started.")
 
-    def _command_verify(self, sender: CommandSender) -> None:
+    def _command_verify(self, sender: CommandSender, *, deep: bool) -> None:
         repository = self._repository
         capture = self._capture
-        config = self._runtime_config
-        if repository is None or capture is None or config is None:
+        if repository is None or capture is None:
             sender.send_error_message("EndKeep repository service is unavailable.")
             return
         if capture.busy or self._pending_capture:
             sender.send_error_message("Cannot verify while capture is active or pending.")
             return
 
-        deep = config.verify.mode == "deep"
         try:
             accepted = repository.start_verify(deep=deep)
         except Exception as exc:
@@ -704,7 +708,8 @@ class EndKeepPlugin(Plugin):
         if not accepted:
             sender.send_error_message("EndKeep repository is busy.")
             return
-        sender.send_message(f"{config.verify.mode.capitalize()} repository verification started.")
+        mode = "Deep" if deep else "Normal"
+        sender.send_message(f"{mode} repository verification started.")
 
     def _command_cancel(self, sender: CommandSender) -> None:
         repository = self._repository
