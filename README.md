@@ -29,7 +29,10 @@ save hold
 ```
 
 Hashing, zstd compression, Amulet LevelDB scans, semantic diffing, retention, rollover, and
-repository verification happen after BDS has resumed.
+repository verification happen after BDS has resumed. Heavy repository work runs in a dedicated
+long-lived Python worker process, so it has its own interpreter/GIL and cannot starve Endstone's
+embedded Python runtime. The plugin automatically starts or reconnects to this worker; no separate
+daemon setup is required.
 
 Raw snapshots are a short-lived write-back queue, not the long-term backup format. Successful
 maintenance converts them into:
@@ -67,7 +70,10 @@ Maintenance:
 `FULL` first performs the same drain, then applies retention, any required logical rollover,
 orphan-object GC, stale work cleanup, and structural repository verification.
 
-Missed schedule times are not replayed later.
+Missed schedule times are not replayed later. If a maintenance window arrives while repository work
+is already active, EndKeep coalesces it into at most one durable pending maintenance slot instead of
+dropping it. `FULL` subsumes `LOGIC_ONLY`, and an accepted pending job survives plugin reloads or
+server restarts until it can run.
 
 ## Configuration
 
@@ -105,6 +111,12 @@ keep_last = 28
 [storage]
 path = "backups"
 min_free_space_gib = 5
+
+[worker]
+priority = "background"
+
+[verify]
+mode = "normal"
 ```
 
 Transient `save query` misses are retried internally every 10 server ticks. The capture still has a fixed
@@ -114,6 +126,22 @@ Retention keeps a snapshot when it is **within `keep_days` OR among the last `ke
 The raw hard limits are safety limits: if the queue cannot be logicalized and a hard limit must be
 enforced, EndKeep drops the oldest raw recovery point first so newer player work remains protected.
 It still preserves the configured free-space reserve rather than filling the BDS disk.
+
+`worker.priority` selects a normalized operating-system scheduling policy:
+
+- `conservative` — strongest preference for BDS responsiveness; intended for constrained 1-2 core hosts.
+- `background` — default; aggressively uses otherwise-idle resources but yields CPU/I/O weight under contention.
+- `balanced` — smaller priority penalty when backup completion time matters more.
+- `throughput` — normal OS priority for maximum repository throughput; EndKeep never raises itself above BDS.
+
+EndKeep does not depend on Spark/PAPI or MSPT-based throttling. CPU placement and contention are left
+to the operating-system scheduler. On startup, missing configuration keys are recursively added from
+the packaged defaults; existing values and unknown keys are preserved. Existing invalid values fail
+configuration validation instead of being silently overwritten.
+
+`verify.mode` controls manual `/backup verify`: `normal` (default) performs structural checks,
+while `deep` additionally verifies immutable object content and replays every retained logical state.
+FULL maintenance always keeps its built-in structural verification regardless of this setting.
 
 ## Administrator commands
 
@@ -126,11 +154,24 @@ All `/backup` commands require `endkeep.admin` and are OP/console-only by defaul
 /backup maintenance
 /backup maintenance full
 /backup verify
+/backup cancel
 /backup reload
 ```
 
 `/backup create` creates a raw snapshot only. It does not immediately force normal
 logicalization.
+
+`/backup status` prints a one-shot worker/job snapshot. Active jobs include a stage pipeline such as
+`Clone  [Logicalize]  Sidecar  Commit  Retention  Rollover  GC  Verify  Finalize` followed by current progress; EndKeep does
+not continuously print progress to the console.
+
+`/backup cancel` requests cooperative cancellation of the current repository job. Cancellation is
+honored only at transaction-safe checkpoints; an atomic manifest/HEAD commit is always allowed to
+finish. Any queued maintenance job remains queued.
+
+A normal Endstone `/reload` detaches the plugin controller but leaves an active repository worker
+running. The new plugin instance reconnects to the same worker and continues observing the existing
+job instead of restarting it.
 
 There is intentionally no online `/backup restore`.
 
@@ -150,7 +191,9 @@ backups/
 │   ├── manifests/
 │   └── .incoming/
 ├── work/
-└── scheduler-state.json
+├── scheduler-state.json
+├── worker-runtime.json
+└── worker.log
 ```
 
 `raw/` may normally contain only a few snapshots. `repo/` is the authoritative long-term
@@ -158,9 +201,12 @@ backup repository.
 
 ## Installation
 
-Download the EndKeep `.whl` from either a GitHub Actions build artifact or a GitHub Release,
-then install it into the Endstone server environment with Python 3.14 and pip before restarting
-the server.
+EndKeep currently supports Linux only; Windows is not a supported or tested runtime.
+
+Download the EndKeep `.whl` from either a GitHub Actions build artifact or a GitHub Release and
+place it in the server's `plugins/` directory. Endstone installs Python plugin wheels and their
+runtime dependencies into its managed plugin environment automatically; restart the server or use
+Endstone's plugin reload flow as appropriate.
 
 Current Amulet-LevelDB 3.0.7a0 metadata contains a compiler-version identifier that current uv
 resolvers reject, so EndKeep intentionally uses pip for runtime/offline dependency installation.
@@ -231,8 +277,9 @@ Key invariants:
 Daily FULL maintenance performs structural verification: HEAD/manifest consistency, chain shape,
 referenced-object presence and size sanity, orphan detection, and stale-work cleanup.
 
-Use `/backup verify` or `endkeep-offline.py verify` for deep object and logical state digest
-verification.
+Manual `/backup verify` uses `verify.mode` from `config.toml`: `normal` performs structural
+verification and `deep` additionally validates immutable object hashes and every retained logical
+state digest. The standalone `endkeep-offline.py verify` remains a deep offline verification tool.
 
 ## Limitations and non-goals
 
