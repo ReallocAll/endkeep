@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from .config import EndKeepConfig
 
@@ -19,14 +19,23 @@ class ScheduleEvent:
     kind: ScheduleKind
     configured_time: str
     maintenance_mode: MaintenanceMode | None = None
+    request_id: str | None = None
+
+
+def _maintenance_request_id(date_string: str, configured_time: str, mode: MaintenanceMode) -> str:
+    return f"maintenance:{date_string}:{configured_time}:{mode}"
 
 
 class SchedulerState:
-    """Small durable ledger preventing duplicate triggers within the same local date."""
+    """Durable schedule ledger plus one coalescing pending maintenance slot."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.data: dict[str, dict[str, str]] = {"capture": {}, "maintenance": {}}
+        self.data: dict[str, Any] = {
+            "capture": {},
+            "maintenance": {},
+            "pending_maintenance": None,
+        }
         self.load()
 
     def load(self) -> None:
@@ -43,12 +52,77 @@ class SchedulerState:
                 raise ValueError(f"scheduler-state.json has invalid {kind!r} section")
             self.data[kind] = dict(section)
 
+        pending = raw.get("pending_maintenance")
+        if pending is None:
+            self.data["pending_maintenance"] = None
+        elif (
+            isinstance(pending, dict)
+            and pending.get("mode") in ("FULL", "LOGIC_ONLY")
+            and isinstance(pending.get("configured_time"), str)
+            and isinstance(pending.get("date"), str)
+        ):
+            mode = str(pending["mode"])
+            configured_time = str(pending["configured_time"])
+            date_string = str(pending["date"])
+            request_id = pending.get("request_id")
+            if not isinstance(request_id, str) or not request_id:
+                request_id = _maintenance_request_id(
+                    date_string,
+                    configured_time,
+                    mode,  # type: ignore[arg-type]
+                )
+            self.data["pending_maintenance"] = {
+                "mode": mode,
+                "configured_time": configured_time,
+                "date": date_string,
+                "request_id": request_id,
+            }
+        else:
+            raise ValueError("scheduler-state.json has invalid pending_maintenance")
+
     def already_triggered(self, event: ScheduleEvent, date_string: str) -> bool:
         return self.data[event.kind].get(event.configured_time) == date_string
 
     def mark_triggered(self, event: ScheduleEvent, date_string: str) -> None:
         self.data[event.kind][event.configured_time] = date_string
         self._save_atomic()
+
+    def queue_maintenance_and_mark_triggered(self, event: ScheduleEvent, date_string: str) -> None:
+        if event.kind != "maintenance" or event.maintenance_mode is None or event.request_id is None:
+            raise ValueError("only identified maintenance events can be queued")
+
+        current = self.data.get("pending_maintenance")
+        replacement = {
+            "mode": event.maintenance_mode,
+            "configured_time": event.configured_time,
+            "date": date_string,
+            "request_id": event.request_id,
+        }
+        if not isinstance(current, dict) or (current.get("mode") != "FULL" and event.maintenance_mode == "FULL"):
+            self.data["pending_maintenance"] = replacement
+
+        # Persist the coalesced pending slot and schedule ledger together.
+        self.data["maintenance"][event.configured_time] = date_string
+        self._save_atomic()
+
+    def pending_maintenance(self) -> ScheduleEvent | None:
+        raw = self.data.get("pending_maintenance")
+        if not isinstance(raw, dict):
+            return None
+        return ScheduleEvent(
+            "maintenance",
+            str(raw["configured_time"]),
+            str(raw["mode"]),  # type: ignore[arg-type]
+            str(raw["request_id"]),
+        )
+
+    def clear_pending_maintenance(self, request_id: str) -> bool:
+        current = self.data.get("pending_maintenance")
+        if not isinstance(current, dict) or current.get("request_id") != request_id:
+            return False
+        self.data["pending_maintenance"] = None
+        self._save_atomic()
+        return True
 
     def _save_atomic(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,17 +144,33 @@ class SchedulerState:
 
 
 class EndKeepScheduler:
-    """Local-clock scheduler with no timezone abstraction and no missed-event catch-up."""
+    """Local-clock scheduler with no missed-event catch-up."""
 
     def __init__(
         self,
         config: EndKeepConfig,
         state: SchedulerState,
-        dispatch: Callable[[ScheduleEvent], None],
+        dispatch: Callable[[ScheduleEvent], bool],
     ) -> None:
         self._config = config
         self._state = state
         self._dispatch = dispatch
+
+    @property
+    def pending_maintenance(self) -> ScheduleEvent | None:
+        return self._state.pending_maintenance()
+
+    def dispatch_pending(self) -> ScheduleEvent | None:
+        event = self._state.pending_maintenance()
+        if event is None:
+            return None
+        if not self._dispatch(event):
+            return None
+        # Keep the durable slot until the matching worker completion is handled.
+        return event
+
+    def complete_pending(self, request_id: str) -> bool:
+        return self._state.clear_pending_maintenance(request_id)
 
     def tick(self, now: datetime | None = None) -> list[ScheduleEvent]:
         current = now or datetime.now()
@@ -93,15 +183,28 @@ class EndKeepScheduler:
 
         if hhmm in self._config.maintenance.times:
             mode = self._config.maintenance.mode_for(hhmm)
-            due.append(ScheduleEvent("maintenance", hhmm, mode))  # type: ignore[arg-type]
+            due.append(
+                ScheduleEvent(
+                    "maintenance",
+                    hhmm,
+                    mode,  # type: ignore[arg-type]
+                    _maintenance_request_id(date_string, hhmm, mode),  # type: ignore[arg-type]
+                )
+            )
 
-        fired: list[ScheduleEvent] = []
+        accepted_events: list[ScheduleEvent] = []
         for event in due:
             if self._state.already_triggered(event, date_string):
                 continue
-            # Persist acceptance before dispatch. A failed job is surfaced operationally
-            # and can be retried manually; the scheduler never loops within one minute.
+
+            accepted = self._dispatch(event)
+            if not accepted and event.kind == "maintenance":
+                self._state.queue_maintenance_and_mark_triggered(event, date_string)
+                accepted_events.append(event)
+                continue
+
+            if not accepted:
+                continue
             self._state.mark_triggered(event, date_string)
-            self._dispatch(event)
-            fired.append(event)
-        return fired
+            accepted_events.append(event)
+        return accepted_events

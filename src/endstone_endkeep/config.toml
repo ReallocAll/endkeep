@@ -29,3 +29,9 @@ keep_last = 28
 [storage]
 path = "backups"
 min_free_space_gib = 5
+
+[worker]
+priority = "background"
+
+[verify]
+mode = "normal"
