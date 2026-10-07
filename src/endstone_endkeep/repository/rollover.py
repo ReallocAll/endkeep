@@ -34,15 +34,44 @@ class Rollover:
         self.reader = RepositoryReader(objects)
         self.fault_hook = fault_hook
 
-    def run(self, manifest: RepositoryManifest, first_retained_index: int) -> tuple[RepositoryManifest, RolloverResult]:
+    def run(
+        self,
+        manifest: RepositoryManifest,
+        first_retained_index: int,
+        *,
+        progress: Callable[[int, int], None] | None = None,
+        cancel_check: Callable[[], None] | None = None,
+        phase: Callable[[str], None] | None = None,
+    ) -> tuple[RepositoryManifest, RolloverResult]:
         if first_retained_index <= 0:
             raise ValueError("rollover requires a non-empty prefix to absorb")
         if first_retained_index >= len(manifest.chain):
             raise ValueError("rollover must retain at least one snapshot")
 
         target = manifest.chain[first_retained_index]
+        if phase is not None:
+            phase("materialize")
+        if cancel_check is not None:
+            cancel_check()
+
+        completed = 0
+
+        def advance(amount: int) -> None:
+            nonlocal completed
+            completed += amount
+            if progress is not None:
+                progress(completed, target.records)
+            if cancel_check is not None:
+                cancel_check()
+
         state = self.reader.iter_state(manifest, snapshot=target.snapshot)
-        object_meta, stats = self.objects.create(lambda stream: write_base(stream, state))
+        object_meta, stats = self.objects.create(
+            lambda stream: write_base(
+                stream,
+                state,
+                progress=advance if progress is not None or cancel_check is not None else None,
+            )
+        )
         assert isinstance(stats, BaseStats)
 
         if (
@@ -52,6 +81,8 @@ class Rollover:
         ):
             raise RuntimeError("rollover materialized state does not match retained snapshot identity")
 
+        if cancel_check is not None:
+            cancel_check()
         new_base = SnapshotNode(
             snapshot=target.snapshot,
             world_name=target.world_name,
@@ -67,6 +98,9 @@ class Rollover:
             generation=manifest.generation + 1,
             chain=(new_base, *manifest.chain[first_retained_index + 1 :]),
         )
+
+        if phase is not None:
+            phase("commit")
         RepositoryTransaction(self.manifests, fault_hook=self.fault_hook).commit(new_manifest)
 
         return (

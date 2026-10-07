@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,9 @@ from .manifest import ManifestStore, RepositoryManifest, SnapshotNode, snapshot_
 from .objects import ObjectMetadata, ObjectStore
 from .reader import RepositoryReader
 from .transaction import RepositoryTransaction
+
+type LogicalizeProgress = Callable[[str, int | None, str | None, str | None], None]
+type CancelCheck = Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -55,10 +59,17 @@ class Logicalizer:
         )
         self.reader = RepositoryReader(self.objects)
 
-    def logicalize(self, raw_path: Path) -> LogicalizeResult:
+    def logicalize(
+        self,
+        raw_path: Path,
+        *,
+        progress: LogicalizeProgress | None = None,
+        cancel_check: CancelCheck | None = None,
+    ) -> LogicalizeResult:
         started = time.monotonic()
         raw = load_raw_snapshot(raw_path)
         current_manifest = self.manifests.load_current()
+        self._checkpoint(cancel_check)
 
         if current_manifest is not None:
             tail = current_manifest.chain[-1]
@@ -68,11 +79,19 @@ class Logicalizer:
             ):
                 raise ValueError(f"raw snapshot {raw.snapshot_id} is not newer than repository tail {tail.snapshot}")
 
+        self._report(progress, "clone", None, None, raw.snapshot_id)
         clone_world(raw.path, raw.manifest.world_name, self.work_root, raw.snapshot_id)
+        self._checkpoint(cancel_check)
+
         db_path = self.work_root / raw.snapshot_id / raw.manifest.world_name / "db"
         try:
             if current_manifest is None:
-                node, diff_counts = self._create_base(raw, db_path)
+                node, diff_counts = self._create_base(
+                    raw,
+                    db_path,
+                    progress=progress,
+                    cancel_check=cancel_check,
+                )
                 new_chain = (node,)
             else:
                 if current_manifest.chain[0].world_name != raw.manifest.world_name:
@@ -82,11 +101,19 @@ class Logicalizer:
                     )
                 if any(existing.snapshot == raw.snapshot_id for existing in current_manifest.chain):
                     raise ValueError(f"snapshot already committed: {raw.snapshot_id}")
-                node, diff_counts = self._create_delta(raw, db_path, current_manifest)
+                node, diff_counts = self._create_delta(
+                    raw,
+                    db_path,
+                    current_manifest,
+                    progress=progress,
+                    cancel_check=cancel_check,
+                )
                 new_chain = (*current_manifest.chain, node)
 
+            self._checkpoint(cancel_check)
             generation = 1 if current_manifest is None else current_manifest.generation + 1
             new_manifest = RepositoryManifest(generation=generation, chain=tuple(new_chain))
+            self._report(progress, "commit", None, None, raw.snapshot_id)
             RepositoryTransaction(self.manifests).commit(new_manifest)
         finally:
             remove_processing_clone(self.work_root, raw.snapshot_id)
@@ -116,11 +143,34 @@ class Logicalizer:
         self,
         raw: RawSnapshotMetadata,
         db_path: Path,
+        *,
+        progress: LogicalizeProgress | None,
+        cancel_check: CancelCheck | None,
     ) -> tuple[SnapshotNode, tuple[int, int, int, int]]:
+        completed = 0
+
+        def advance(amount: int) -> None:
+            nonlocal completed
+            completed += amount
+            self._report(progress, "scan+compress", completed, "records", raw.snapshot_id)
+            self._checkpoint(cancel_check)
+
+        self._report(progress, "scan+compress", 0, "records", raw.snapshot_id)
         with iter_visible_state(db_path) as current:
-            object_meta, stats = self.objects.create(lambda stream: write_base(stream, current))
+            object_meta, stats = self.objects.create(
+                lambda stream: write_base(
+                    stream,
+                    current,
+                    progress=advance if progress is not None or cancel_check is not None else None,
+                )
+            )
         assert isinstance(stats, BaseStats)
-        sidecar_meta, _sidecar_stats = self._create_sidecar(raw)
+        self._checkpoint(cancel_check)
+        sidecar_meta, _sidecar_stats = self._create_sidecar(
+            raw,
+            progress=progress,
+            cancel_check=cancel_check,
+        )
         return (
             SnapshotNode(
                 snapshot=raw.snapshot_id,
@@ -141,18 +191,43 @@ class Logicalizer:
         raw: RawSnapshotMetadata,
         db_path: Path,
         current_manifest: RepositoryManifest,
+        *,
+        progress: LogicalizeProgress | None,
+        cancel_check: CancelCheck | None,
     ) -> tuple[SnapshotNode, tuple[int, int, int, int]]:
         stats = DiffStats()
         previous = self.reader.iter_state(current_manifest)
+        scanned = 0
+
+        def advance(amount: int) -> None:
+            nonlocal scanned
+            scanned += amount
+            self._report(progress, "diff+compress", scanned, "keys", raw.snapshot_id)
+            self._checkpoint(cancel_check)
+
+        self._report(progress, "diff+compress", 0, "keys", raw.snapshot_id)
         with iter_visible_state(db_path) as current:
             object_meta, delta_stats = self.objects.create(
-                lambda stream: write_delta(stream, semantic_diff(previous, current, stats))
+                lambda stream: write_delta(
+                    stream,
+                    semantic_diff(
+                        previous,
+                        current,
+                        stats,
+                        progress=advance if progress is not None or cancel_check is not None else None,
+                    ),
+                )
             )
         assert isinstance(delta_stats, DeltaStats)
         if delta_stats.records != stats.delta_records:
             raise RuntimeError("semantic diff stats do not match DELTA writer stats")
 
-        sidecar_meta, _sidecar_stats = self._create_sidecar(raw)
+        self._checkpoint(cancel_check)
+        sidecar_meta, _sidecar_stats = self._create_sidecar(
+            raw,
+            progress=progress,
+            cancel_check=cancel_check,
+        )
         return (
             SnapshotNode(
                 snapshot=raw.snapshot_id,
@@ -171,8 +246,30 @@ class Logicalizer:
     def _create_sidecar(
         self,
         raw: RawSnapshotMetadata,
+        *,
+        progress: LogicalizeProgress | None,
+        cancel_check: CancelCheck | None,
     ) -> tuple[ObjectMetadata, SidecarStats]:
+        self._report(progress, "sidecar", None, None, raw.snapshot_id)
+        self._checkpoint(cancel_check)
         metadata, stats = self.objects.create(
             lambda stream: write_sidecar(stream, raw.path, raw.manifest.sidecar_entries)
         )
+        self._checkpoint(cancel_check)
         return metadata, stats
+
+    @staticmethod
+    def _report(
+        progress: LogicalizeProgress | None,
+        detail: str,
+        current: int | None,
+        unit: str | None,
+        snapshot: str | None,
+    ) -> None:
+        if progress is not None:
+            progress(detail, current, unit, snapshot)
+
+    @staticmethod
+    def _checkpoint(cancel_check: CancelCheck | None) -> None:
+        if cancel_check is not None:
+            cancel_check()

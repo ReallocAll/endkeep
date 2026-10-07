@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import BinaryIO, Literal
 
@@ -102,12 +102,22 @@ def _update_state_hash(hasher, key: bytes, value: bytes) -> None:
         hasher.update(part)
 
 
-def write_base(stream: BinaryIO, records: Iterable[tuple[bytes, bytes]]) -> BaseStats:
+def write_base(
+    stream: BinaryIO,
+    records: Iterable[tuple[bytes, bytes]],
+    *,
+    progress: Callable[[int], None] | None = None,
+    progress_interval: int = 16384,
+) -> BaseStats:
+    if progress_interval <= 0:
+        raise ValueError("progress_interval must be positive")
+
     stream.write(BASE_MAGIC)
     previous: bytes | None = None
     count = 0
     value_bytes = 0
     state_hasher = hashlib.sha256()
+    pending_progress = 0
 
     for key, value in records:
         if not isinstance(key, bytes) or not isinstance(value, bytes):
@@ -122,6 +132,14 @@ def write_base(stream: BinaryIO, records: Iterable[tuple[bytes, bytes]]) -> Base
         count += 1
         value_bytes += len(value)
 
+        if progress is not None:
+            pending_progress += 1
+            if pending_progress >= progress_interval:
+                progress(pending_progress)
+                pending_progress = 0
+
+    if progress is not None and pending_progress:
+        progress(pending_progress)
     return BaseStats(count, value_bytes, state_hasher.hexdigest())
 
 

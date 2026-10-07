@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 
 from .format import DeltaOperation, encode_uvarint
@@ -42,8 +42,14 @@ def semantic_diff(
     previous: Iterable[tuple[bytes, bytes]],
     current: Iterable[tuple[bytes, bytes]],
     stats: DiffStats,
+    *,
+    progress: Callable[[int], None] | None = None,
+    progress_interval: int = 16384,
 ) -> Iterator[DeltaOperation]:
     """Streaming sorted-key semantic diff from previous state to current state."""
+
+    if progress_interval <= 0:
+        raise ValueError("progress_interval must be positive")
 
     previous_it = iter(previous)
     current_it = iter(current)
@@ -51,8 +57,14 @@ def semantic_diff(
     current_item = next(current_it, _SENTINEL)
     previous_key_seen: bytes | None = None
     current_key_seen: bytes | None = None
+    pending_progress = 0
 
     while previous_item is not _SENTINEL or current_item is not _SENTINEL:
+        pending_progress += 1
+        if progress is not None and pending_progress >= progress_interval:
+            progress(pending_progress)
+            pending_progress = 0
+
         if previous_item is not _SENTINEL:
             previous_key, previous_value = previous_item
             if previous_key_seen is not None and previous_key <= previous_key_seen:
@@ -99,3 +111,6 @@ def semantic_diff(
             current_key_seen = current_key
             previous_item = next(previous_it, _SENTINEL)
             current_item = next(current_it, _SENTINEL)
+
+    if progress is not None and pending_progress:
+        progress(pending_progress)
