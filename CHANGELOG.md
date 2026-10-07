@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Run heavy repository maintenance in an automatically managed long-lived subprocess with an independent Python interpreter/GIL.
+- Add normalized `worker.priority` policies for conservative, background, balanced, and throughput scheduling.
+- Add one-shot stage/progress details to `/backup status` and cooperative `/backup cancel`.
+- Add configurable manual verification strength with `verify.mode = normal|deep`, defaulting to normal.
+- Persist and coalesce overlapping scheduled maintenance into a single pending slot.
+
+### Changed
+- Preserve active repository work across Endstone plugin reloads by reconnecting to the existing worker.
+- Recursively add newly introduced default configuration keys at startup while preserving existing and unknown settings.
+- Keep FULL maintenance's built-in repository verification structural even when manual verification is configured as deep.
+
+### Fixed
+- Isolate Python-heavy LevelDB scanning and semantic diffing from the BDS process so repository maintenance cannot starve the server thread on the shared GIL.
+- Treat cooperative cancellation separately from logicalization failure so cancellation can never trigger raw recovery-point eviction.
+
 ## [0.1.5] - 2026-10-07
 
 ### Added
