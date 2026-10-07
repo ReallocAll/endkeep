@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-07
+
 ### Added
 - Run heavy repository maintenance in an automatically managed long-lived subprocess with an independent Python interpreter/GIL.
 - Add normalized `worker.priority` policies for conservative, background, balanced, and throughput scheduling.
