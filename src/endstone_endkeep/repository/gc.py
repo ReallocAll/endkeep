@@ -28,6 +28,8 @@ def collect_orphan_objects(
     manifest: RepositoryManifest,
     *,
     fault_hook: Callable[[str], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> GcResult:
     hook = fault_hook or (lambda _point: None)
     referenced = referenced_object_hashes(manifest)
@@ -39,19 +41,27 @@ def collect_orphan_objects(
     if not objects.objects_root.exists():
         return GcResult(0, 0, 0)
 
-    for path in objects.objects_root.glob("*/*.zst"):
+    paths = list(objects.objects_root.glob("*/*.zst"))
+    total = len(paths)
+    for index, path in enumerate(paths, start=1):
+        if cancel_check is not None:
+            cancel_check()
         logical_hash = path.stem
         if logical_hash in referenced:
             retained += 1
-            continue
-        size = path.stat().st_size
-        path.unlink()
-        hook("after_gc_delete")
-        removed += 1
-        removed_bytes += size
-        modified_dirs.add(path.parent)
+        else:
+            size = path.stat().st_size
+            path.unlink()
+            hook("after_gc_delete")
+            removed += 1
+            removed_bytes += size
+            modified_dirs.add(path.parent)
+        if progress is not None:
+            progress(index, total)
 
     for directory in sorted(modified_dirs):
+        if cancel_check is not None:
+            cancel_check()
         ObjectStore._fsync_directory(directory)
         try:
             directory.rmdir()

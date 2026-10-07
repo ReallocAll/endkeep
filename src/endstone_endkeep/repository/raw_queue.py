@@ -8,6 +8,8 @@ from pathlib import Path
 
 from endstone_endkeep.staging.metadata import load_raw_snapshot
 
+from .progress import JobCancelled
+
 
 @dataclass(frozen=True)
 class PendingRaw:
@@ -53,8 +55,13 @@ class RawQueue:
                 if captured.tzinfo is None:
                     captured = captured.astimezone()
                 result.append(PendingRaw(path, metadata.snapshot_id, captured, True))
+            except FileNotFoundError:
+                continue
             except Exception:
-                captured = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+                try:
+                    captured = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+                except FileNotFoundError:
+                    continue
                 result.append(PendingRaw(path, path.name, captured, False))
         result.sort(key=lambda item: (item.captured_at, item.snapshot_id))
         return result
@@ -94,6 +101,8 @@ class RawQueue:
                 logicalize(oldest.path)
                 logicalized.append(oldest.snapshot_id)
                 continue
+            except JobCancelled:
+                raise
             except Exception:
                 # The hard limit is authoritative. Preserve the newest recovery points
                 # by evicting the oldest raw when it cannot be committed.
