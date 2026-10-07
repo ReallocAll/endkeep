@@ -22,6 +22,15 @@ type LogicalizeProgress = Callable[[str, int | None, int | None, str | None, str
 type CancelCheck = Callable[[], None]
 
 
+def delta_progress_counts(stats: DiffStats, previous_total: int) -> tuple[int, int]:
+    """Return processed merge keys and a monotonic estimated total for DELTA progress."""
+
+    previous_consumed = stats.unchanged + stats.changed + stats.deleted
+    processed = previous_consumed + stats.inserted
+    estimated_total = previous_total + stats.inserted
+    return processed, estimated_total
+
+
 @dataclass(frozen=True)
 class LogicalizeResult:
     snapshot_id: str
@@ -200,9 +209,7 @@ class Logicalizer:
         previous_total = current_manifest.chain[-1].records
 
         def advance(_amount: int) -> None:
-            previous_consumed = stats.unchanged + stats.changed + stats.deleted
-            processed = previous_consumed + stats.inserted
-            estimated_total = previous_total + stats.inserted
+            processed, estimated_total = delta_progress_counts(stats, previous_total)
             self._report(
                 progress,
                 "diff+compress",
