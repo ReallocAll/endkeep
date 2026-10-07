@@ -1,9 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+import os
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+import tomlkit
+
+WorkerPriority = Literal["conservative", "background", "balanced", "throughput"]
+VerifyMode = Literal["normal", "deep"]
+
+_WORKER_PRIORITIES = ("conservative", "background", "balanced", "throughput")
+_VERIFY_MODES = ("normal", "deep")
 
 
 class ConfigError(ValueError):
@@ -43,11 +53,63 @@ def _positive_int(mapping: Mapping[str, Any], key: str, *, allow_zero: bool = Fa
     return value
 
 
+def _choice(mapping: Mapping[str, Any], key: str, allowed: tuple[str, ...]) -> str:
+    value = mapping.get(key)
+    if not isinstance(value, str) or value not in allowed:
+        raise ConfigError(f"{key} must be one of: {', '.join(allowed)}")
+    return value
+
+
 def _section(mapping: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     value = mapping.get(name)
     if not isinstance(value, Mapping):
         raise ConfigError(f"missing [{name}] section")
     return value
+
+
+def _merge_missing(defaults: Mapping[str, Any], current: MutableMapping[str, Any]) -> bool:
+    changed = False
+    for key, default_value in defaults.items():
+        if key not in current:
+            current[key] = default_value
+            changed = True
+            continue
+
+        current_value = current[key]
+        if isinstance(default_value, Mapping) and isinstance(current_value, MutableMapping):
+            changed = _merge_missing(default_value, current_value) or changed
+    return changed
+
+
+def reconcile_config_file(path: Path) -> bool:
+    """Add missing packaged defaults without changing user-defined or unknown values."""
+
+    defaults = tomlkit.parse(files("endstone_endkeep").joinpath("config.toml").read_text(encoding="utf-8"))
+    with path.open("r", encoding="utf-8") as stream:
+        current = tomlkit.load(stream)
+
+    if not _merge_missing(defaults, current):
+        return False
+
+    tmp = path.with_name(f".{path.name}.tmp")
+    with tmp.open("w", encoding="utf-8") as stream:
+        tomlkit.dump(current, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(tmp, path)
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        fd = os.open(path.parent, flags)
+    except OSError:
+        if os.name == "posix":
+            raise
+    else:
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    return True
 
 
 @dataclass(frozen=True)
@@ -92,6 +154,16 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
+class WorkerConfig:
+    priority: WorkerPriority
+
+
+@dataclass(frozen=True)
+class VerifyConfig:
+    mode: VerifyMode
+
+
+@dataclass(frozen=True)
 class EndKeepConfig:
     enabled: bool
     capture: CaptureConfig
@@ -100,6 +172,8 @@ class EndKeepConfig:
     logical: LogicalConfig
     retention: RetentionConfig
     storage: StorageConfig
+    worker: WorkerConfig
+    verify: VerifyConfig
 
     @classmethod
     def from_mapping(cls, mapping: Mapping[str, Any]) -> EndKeepConfig:
@@ -113,6 +187,8 @@ class EndKeepConfig:
         logical = _section(mapping, "logical")
         retention = _section(mapping, "retention")
         storage = _section(mapping, "storage")
+        worker = _section(mapping, "worker")
+        verify = _section(mapping, "verify")
 
         storage_path = storage.get("path")
         if not isinstance(storage_path, str) or not storage_path.strip():
@@ -150,5 +226,11 @@ class EndKeepConfig:
             storage=StorageConfig(
                 path=Path(storage_path),
                 min_free_space_gib=_positive_int(storage, "min_free_space_gib"),
+            ),
+            worker=WorkerConfig(
+                priority=_choice(worker, "priority", _WORKER_PRIORITIES),  # type: ignore[arg-type]
+            ),
+            verify=VerifyConfig(
+                mode=_choice(verify, "mode", _VERIFY_MODES),  # type: ignore[arg-type]
             ),
         )
