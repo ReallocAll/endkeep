@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-07
+
 ### Added
 - Show stage-level tqdm progress for long-running standalone offline verify and restore operations.
 - Add `--verbose` diagnostics for object roles, BASE/DELTA details, byte counts, state digests, and timings.
