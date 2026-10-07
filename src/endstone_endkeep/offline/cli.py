@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 import shutil
+import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -12,7 +14,7 @@ from ..logical.merge import hash_state
 from ..logical.sidecar import extract_sidecar
 from ..repository.lock import RepositoryLock
 from ..repository.manifest import ManifestStore, RepositoryManifest, SnapshotNode
-from ..repository.objects import ObjectStore
+from ..repository.objects import ObjectMetadata, ObjectStore
 from ..repository.reader import RepositoryReader
 from ..repository.verify import RepositoryVerifier
 
@@ -39,25 +41,123 @@ def _resolve_node(manifest: RepositoryManifest, snapshot: str | None) -> Snapsho
     raise KeyError(f"snapshot not found: {snapshot}")
 
 
-def _verify_restore_dependencies(
-    manifest: RepositoryManifest,
-    objects: ObjectStore,
-    target: SnapshotNode,
-) -> None:
-    """Deep-verify only the immutable objects required to restore one snapshot."""
+def _new_progress_bar(
+    *,
+    total: int,
+    desc: str,
+    unit: str,
+    unit_scale: bool = False,
+):
+    try:
+        from tqdm import tqdm
+    except ImportError as exc:
+        raise RuntimeError("tqdm is required for offline progress display; install requirements-offline.txt") from exc
 
-    manifest.validate_chain()
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit=unit,
+        unit_scale=unit_scale,
+        dynamic_ncols=True,
+        mininterval=0.2,
+        file=sys.stderr,
+        leave=True,
+    )
+
+
+def _progress_write(message: str) -> None:
+    try:
+        from tqdm import tqdm
+    except ImportError as exc:
+        raise RuntimeError("tqdm is required for offline progress display; install requirements-offline.txt") from exc
+    tqdm.write(message, file=sys.stderr)
+
+
+def _stage(index: int, total: int, message: str) -> None:
+    print(f"[{index}/{total}] {message}", file=sys.stderr)
+
+
+def _stage_done() -> None:
+    print("done", file=sys.stderr)
+
+
+def _verbose(message: str, *, enabled: bool) -> None:
+    if enabled:
+        _progress_write(f"  {message}")
+
+
+def _unique_referenced_objects(manifest: RepositoryManifest) -> list[ObjectMetadata]:
+    result: list[ObjectMetadata] = []
+    checked: set[str] = set()
+    for node in manifest.chain:
+        for metadata in (node.object, node.sidecar):
+            if metadata.logical_sha256 in checked:
+                continue
+            checked.add(metadata.logical_sha256)
+            result.append(metadata)
+    return result
+
+
+def _restore_dependencies(
+    manifest: RepositoryManifest,
+    target: SnapshotNode,
+) -> list[tuple[SnapshotNode, str, ObjectMetadata]]:
     target_index = next(index for index, node in enumerate(manifest.chain) if node.snapshot == target.snapshot)
+    result: list[tuple[SnapshotNode, str, ObjectMetadata]] = []
     checked: set[str] = set()
 
     for node in manifest.chain[: target_index + 1]:
         metadata = node.object
-        if metadata.logical_sha256 not in checked:
-            objects.verify(metadata)
-            checked.add(metadata.logical_sha256)
+        if metadata.logical_sha256 in checked:
+            continue
+        checked.add(metadata.logical_sha256)
+        result.append((node, node.type.upper(), metadata))
 
     if target.sidecar.logical_sha256 not in checked:
-        objects.verify(target.sidecar)
+        result.append((target, "SIDECAR", target.sidecar))
+
+    return result
+
+
+def _verify_restore_dependencies(
+    manifest: RepositoryManifest,
+    objects: ObjectStore,
+    target: SnapshotNode,
+    *,
+    verbose: bool,
+    show_progress: bool,
+) -> None:
+    """Deep-verify only the immutable objects required to restore one snapshot."""
+
+    manifest.validate_chain()
+    required = _restore_dependencies(manifest, target)
+    bar = None
+    if show_progress:
+        _stage(1, 5, "Verifying required objects")
+        bar = _new_progress_bar(
+            total=len(required),
+            desc="Verifying objects",
+            unit="obj",
+        )
+
+    try:
+        for node, role, metadata in required:
+            started = time.perf_counter()
+            _verbose(
+                f"{role} snapshot={node.snapshot} object={metadata.logical_sha256} "
+                f"logical_bytes={metadata.logical_bytes} compressed_bytes={metadata.compressed_bytes}",
+                enabled=verbose,
+            )
+            objects.verify(metadata)
+            if bar is not None:
+                bar.update(1)
+            _verbose(
+                f"verified object={metadata.logical_sha256[:16]} elapsed={time.perf_counter() - started:.3f}s",
+                enabled=verbose,
+            )
+    finally:
+        if bar is not None:
+            bar.close()
 
 
 def command_list(repo: Path, *, as_json: bool) -> int:
@@ -89,18 +189,133 @@ def command_list(repo: Path, *, as_json: bool) -> int:
     return 0
 
 
-def command_verify(repo: Path) -> int:
+def command_verify(
+    repo: Path,
+    *,
+    verbose: bool = False,
+    show_progress: bool = False,
+) -> int:
     manifests, objects, _reader = _runtime(repo)
     with RepositoryLock(repo):
-        report = RepositoryVerifier(manifests, objects).verify(deep=True)
+        manifest = _load_manifest(manifests)
+
+        if show_progress:
+            print("EndKeep repository verification", file=sys.stderr)
+            print(f"Repository: {repo}", file=sys.stderr)
+            print(f"Generation: {manifest.generation}", file=sys.stderr)
+            print(f"Snapshots: {len(manifest.chain)}", file=sys.stderr)
+            print(file=sys.stderr)
+            _stage(1, 2, "Verifying objects")
+
+        unique_objects = _unique_referenced_objects(manifest)
+        object_bar = (
+            _new_progress_bar(
+                total=len(unique_objects),
+                desc="Verifying objects",
+                unit="obj",
+            )
+            if show_progress
+            else None
+        )
+        object_started: dict[str, float] = {}
+        object_completed: set[str] = set()
+        state_bar = None
+        state_snapshot: str | None = None
+        state_started = 0.0
+        state_stage_printed = False
+
+        def on_object(
+            node: SnapshotNode,
+            role: str,
+            metadata: ObjectMetadata,
+            current: int,
+            total: int,
+        ) -> None:
+            key = metadata.logical_sha256
+            if current == 0:
+                object_started[key] = time.perf_counter()
+                _verbose(
+                    f"{role} snapshot={node.snapshot} object={key} "
+                    f"logical_bytes={metadata.logical_bytes} compressed_bytes={metadata.compressed_bytes}",
+                    enabled=verbose,
+                )
+            if current >= total and key not in object_completed:
+                object_completed.add(key)
+                if object_bar is not None:
+                    object_bar.update(1)
+                _verbose(
+                    f"verified object={key[:16]} elapsed={time.perf_counter() - object_started.pop(key):.3f}s",
+                    enabled=verbose,
+                )
+
+        def on_state(node: SnapshotNode, current: int, total: int) -> None:
+            nonlocal state_bar, state_snapshot, state_started, state_stage_printed
+            if state_snapshot != node.snapshot:
+                if state_bar is not None:
+                    state_bar.close()
+                if show_progress and not state_stage_printed:
+                    if object_bar is not None:
+                        object_bar.close()
+                    print(file=sys.stderr)
+                    _stage(2, 2, "Verifying logical states")
+                    state_stage_printed = True
+                state_snapshot = node.snapshot
+                state_started = time.perf_counter()
+                _verbose(
+                    f"{node.type.upper()} snapshot={node.snapshot} records={node.records} "
+                    f"value_bytes={node.value_bytes} state_sha256={node.state_sha256}",
+                    enabled=verbose,
+                )
+                state_bar = (
+                    _new_progress_bar(
+                        total=total,
+                        desc=node.snapshot,
+                        unit="rec",
+                        unit_scale=True,
+                    )
+                    if show_progress
+                    else None
+                )
+
+            if state_bar is not None and current > state_bar.n:
+                state_bar.update(current - int(state_bar.n))
+            if current >= total:
+                if state_bar is not None:
+                    state_bar.close()
+                    state_bar = None
+                _verbose(
+                    f"verified state={node.snapshot} elapsed={time.perf_counter() - state_started:.3f}s",
+                    enabled=verbose,
+                )
+
+        try:
+            report = RepositoryVerifier(manifests, objects).verify(
+                deep=True,
+                object_progress=on_object if show_progress or verbose else None,
+                state_progress=on_state if show_progress or verbose else None,
+            )
+        finally:
+            if object_bar is not None:
+                object_bar.close()
+            if state_bar is not None:
+                state_bar.close()
+
+    print("PASS")
     print(
-        f"PASS generation={report.generation} snapshots={report.snapshots} "
+        f"generation={report.generation} snapshots={report.snapshots} "
         f"objects={report.referenced_objects} orphans={report.orphan_objects}"
     )
     return 0
 
 
-def command_restore(repo: Path, destination: Path, snapshot: str | None) -> int:
+def command_restore(
+    repo: Path,
+    destination: Path,
+    snapshot: str | None,
+    *,
+    verbose: bool = False,
+    show_progress: bool = False,
+) -> int:
     if destination.exists():
         raise FileExistsError(f"restore destination already exists: {destination}")
 
@@ -109,28 +324,101 @@ def command_restore(repo: Path, destination: Path, snapshot: str | None) -> int:
         manifest = _load_manifest(manifests)
         node = _resolve_node(manifest, snapshot)
 
-        # A restore only depends on the BASE/DELTA prefix through the selected
-        # snapshot plus that snapshot's SIDECAR. Later recovery points must not
-        # prevent restoring an older intact point. The reconstructed DB is still
-        # reopened and checked against the target state digest below.
-        _verify_restore_dependencies(manifest, objects, node)
+        if show_progress:
+            print("EndKeep restore", file=sys.stderr)
+            print(f"Snapshot: {node.snapshot}", file=sys.stderr)
+            print(f"Captured: {node.captured_at}", file=sys.stderr)
+            print(f"World: {node.world_name}", file=sys.stderr)
+            print(f"Destination: {destination}", file=sys.stderr)
+            print(f"Records: {node.records}", file=sys.stderr)
+            print(file=sys.stderr)
+
+        _verify_restore_dependencies(
+            manifest,
+            objects,
+            node,
+            verbose=verbose,
+            show_progress=show_progress,
+        )
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.mkdir()
         try:
+            started = time.perf_counter()
+            if show_progress:
+                print(file=sys.stderr)
+                _stage(2, 5, "Restoring SIDECAR")
             with objects.open_logical(node.sidecar) as stream:
-                extract_sidecar(stream, destination, strip_prefix=node.world_name)
+                sidecar = extract_sidecar(stream, destination, strip_prefix=node.world_name)
+            _verbose(
+                f"SIDECAR files={sidecar.files} bytes={sidecar.bytes} elapsed={time.perf_counter() - started:.3f}s",
+                enabled=verbose,
+            )
+            if show_progress:
+                _stage_done()
 
             state = reader.iter_state(manifest, snapshot=node.snapshot)
-            records, value_bytes = write_fresh_leveldb(destination / "db", state)
+            if show_progress:
+                print(file=sys.stderr)
+                _stage(3, 5, "Rebuilding LevelDB")
+            started = time.perf_counter()
+            rebuild_bar = (
+                _new_progress_bar(
+                    total=node.records,
+                    desc="Rebuilding LevelDB",
+                    unit="rec",
+                    unit_scale=True,
+                )
+                if show_progress
+                else None
+            )
+            try:
+                records, value_bytes = write_fresh_leveldb(
+                    destination / "db",
+                    state,
+                    progress=rebuild_bar.update if rebuild_bar is not None else None,
+                )
+            finally:
+                if rebuild_bar is not None:
+                    rebuild_bar.close()
+            _verbose(
+                f"rebuilt records={records} value_bytes={value_bytes} elapsed={time.perf_counter() - started:.3f}s",
+                enabled=verbose,
+            )
             if records != node.records or value_bytes != node.value_bytes:
                 raise RuntimeError(
                     f"restored DB stats mismatch: records={records}/{node.records} "
                     f"value_bytes={value_bytes}/{node.value_bytes}"
                 )
 
-            with iter_visible_state(destination / "db") as reopened:
-                reopened_stats = hash_state(reopened)
+            if show_progress:
+                print(file=sys.stderr)
+                _stage(4, 5, "Verifying restored LevelDB")
+            started = time.perf_counter()
+            verify_bar = (
+                _new_progress_bar(
+                    total=node.records,
+                    desc="Verifying LevelDB",
+                    unit="rec",
+                    unit_scale=True,
+                )
+                if show_progress
+                else None
+            )
+            try:
+                with iter_visible_state(destination / "db") as reopened:
+                    reopened_stats = hash_state(
+                        reopened,
+                        progress=verify_bar.update if verify_bar is not None else None,
+                    )
+            finally:
+                if verify_bar is not None:
+                    verify_bar.close()
+            _verbose(
+                f"verified records={reopened_stats.records} value_bytes={reopened_stats.value_bytes} "
+                f"state_sha256={reopened_stats.sha256} elapsed={time.perf_counter() - started:.3f}s",
+                enabled=verbose,
+            )
             if (
                 reopened_stats.sha256 != node.state_sha256
                 or reopened_stats.records != node.records
@@ -140,14 +428,25 @@ def command_restore(repo: Path, destination: Path, snapshot: str | None) -> int:
                     f"restored world state digest mismatch: {reopened_stats.sha256} != {node.state_sha256}"
                 )
 
+            if show_progress:
+                print(file=sys.stderr)
+                _stage(5, 5, "Flushing restored world")
+            started = time.perf_counter()
             _fsync_tree(destination)
+            _verbose(
+                f"fsync destination={destination} elapsed={time.perf_counter() - started:.3f}s",
+                enabled=verbose,
+            )
+            if show_progress:
+                _stage_done()
         except Exception:
             shutil.rmtree(destination, ignore_errors=True)
             raise
 
+    print("RESTORED")
     print(
-        f"RESTORED snapshot={node.snapshot} world={node.world_name} "
-        f"records={node.records} state_sha256={node.state_sha256} destination={destination}"
+        f"snapshot={node.snapshot} world={node.world_name} records={node.records} "
+        f"state_sha256={node.state_sha256} destination={destination}"
     )
     return 0
 
@@ -202,7 +501,13 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List committed recovery points")
     list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
-    subparsers.add_parser("verify", help="Deep-verify objects and logical state digests")
+    verify_parser = subparsers.add_parser("verify", help="Deep-verify objects and logical state digests")
+    verify_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show object, BASE/DELTA, byte-count, and timing details",
+    )
 
     restore_parser = subparsers.add_parser("restore", help="Restore a snapshot into a fresh world directory")
     restore_parser.add_argument(
@@ -215,6 +520,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="latest",
         help="Snapshot ID to restore (default: latest)",
     )
+    restore_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show object, BASE/DELTA, byte-count, and timing details",
+    )
     return parser
 
 
@@ -226,9 +537,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "list":
         return command_list(repo, as_json=args.json)
     if args.command == "verify":
-        return command_verify(repo)
+        return command_verify(
+            repo,
+            verbose=args.verbose,
+            show_progress=True,
+        )
     if args.command == "restore":
-        return command_restore(repo, args.destination.resolve(), args.snapshot)
+        return command_restore(
+            repo,
+            args.destination.resolve(),
+            args.snapshot,
+            verbose=args.verbose,
+            show_progress=True,
+        )
     parser.error(f"unknown command: {args.command}")
     return 2
 

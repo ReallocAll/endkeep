@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from endstone_endkeep.logical.merge import hash_state
 
 from .gc import referenced_object_hashes
-from .manifest import ManifestStore, RepositoryManifest
+from .manifest import ManifestStore, RepositoryManifest, SnapshotNode
 from .objects import ObjectMetadata, ObjectStore
 from .reader import RepositoryReader
+
+type ObjectProgressCallback = Callable[[SnapshotNode, str, ObjectMetadata, int, int], None]
+type StateProgressCallback = Callable[[SnapshotNode, int, int], None]
 
 
 class VerificationError(RuntimeError):
@@ -29,7 +33,13 @@ class RepositoryVerifier:
         self.objects = objects
         self.reader = RepositoryReader(objects)
 
-    def verify(self, *, deep: bool = False) -> VerifyReport:
+    def verify(
+        self,
+        *,
+        deep: bool = False,
+        object_progress: ObjectProgressCallback | None = None,
+        state_progress: StateProgressCallback | None = None,
+    ) -> VerifyReport:
         manifest = self.manifests.load_current()
         if manifest is None:
             return VerifyReport(None, 0, 0, self._count_object_files(), deep)
@@ -40,7 +50,11 @@ class RepositoryVerifier:
         orphans = existing - referenced
 
         if deep:
-            self._verify_deep(manifest)
+            self._verify_deep(
+                manifest,
+                object_progress=object_progress,
+                state_progress=state_progress,
+            )
 
         return VerifyReport(
             generation=manifest.generation,
@@ -68,16 +82,48 @@ class RepositoryVerifier:
                 f"{path.stat().st_size} != {metadata.compressed_bytes}"
             )
 
-    def _verify_deep(self, manifest: RepositoryManifest) -> None:
+    def _verify_deep(
+        self,
+        manifest: RepositoryManifest,
+        *,
+        object_progress: ObjectProgressCallback | None,
+        state_progress: StateProgressCallback | None,
+    ) -> None:
         checked: set[str] = set()
         for node in manifest.chain:
-            for metadata in (node.object, node.sidecar):
-                if metadata.logical_sha256 not in checked:
-                    self.objects.verify(metadata)
-                    checked.add(metadata.logical_sha256)
+            for role, metadata in ((node.type.upper(), node.object), ("SIDECAR", node.sidecar)):
+                if metadata.logical_sha256 in checked:
+                    continue
+
+                if object_progress is not None:
+                    object_progress(node, role, metadata, 0, 1)
+                self.objects.verify(metadata)
+                if object_progress is not None:
+                    object_progress(node, role, metadata, 1, 1)
+                checked.add(metadata.logical_sha256)
 
         for node in manifest.chain:
-            stats = hash_state(self.reader.iter_state(manifest, snapshot=node.snapshot))
+            completed_records = 0
+            if state_progress is not None:
+                state_progress(node, 0, node.records)
+
+            def advance_state(
+                amount: int,
+                current_node: SnapshotNode = node,
+            ) -> None:
+                nonlocal completed_records
+                completed_records += amount
+                if state_progress is not None:
+                    state_progress(
+                        current_node,
+                        completed_records,
+                        current_node.records,
+                    )
+
+            stats = hash_state(
+                self.reader.iter_state(manifest, snapshot=node.snapshot),
+                progress=advance_state if state_progress is not None else None,
+            )
             if (
                 stats.sha256 != node.state_sha256
                 or stats.records != node.records
