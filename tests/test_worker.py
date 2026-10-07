@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -11,7 +12,7 @@ from endstone_endkeep.worker.client import RepositoryWorkerClient, WorkerError
 from endstone_endkeep.worker.server import WorkerApplication
 
 
-def _settings() -> dict[str, int]:
+def _settings(*, verify_mode: str = "normal") -> dict[str, Any]:
     return {
         "compression_level": 6,
         "compression_threads": 1,
@@ -20,6 +21,7 @@ def _settings() -> dict[str, int]:
         "min_free_space_gib": 0,
         "keep_days": 7,
         "keep_last": 28,
+        "verify_mode": verify_mode,
     }
 
 
@@ -109,6 +111,43 @@ def test_worker_starts_reconnects_and_runs_normal_verify(tmp_path: Path, monkeyp
             except Exception:
                 pass
 
+
+
+
+def test_full_maintenance_honors_configured_deep_verify(tmp_path: Path) -> None:
+    storage = tmp_path / "backups"
+    client = RepositoryWorkerClient.connect_or_start(storage, priority="background")
+    try:
+        client.configure(_settings(verify_mode="deep"))
+        assert client.start_maintenance("FULL")
+
+        result = None
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and result is None:
+            time.sleep(0.05)
+            result = client.poll()
+
+        assert result is not None
+        result_id, payload = result
+        assert payload["kind"] == "maintenance"
+        assert payload["maintenance"]["verify"]["deep"] is True
+        assert client.ack_result(result_id) is True
+    finally:
+        current = RepositoryWorkerClient._load_runtime(storage / "worker-runtime.json")
+        if current is not None:
+            cleanup = RepositoryWorkerClient(
+                storage / "worker-runtime.json",
+                current,
+                desired_priority=current.priority,
+            )
+            try:
+                cleanup.shutdown()
+            except Exception:
+                pass
+            try:
+                RepositoryWorkerClient._wait_for_exit(current.pid, storage / "worker-runtime.json")
+            except Exception:
+                pass
 
 def test_control_poll_does_not_touch_repository_disk_state(tmp_path: Path) -> None:
     app = WorkerApplication(tmp_path / "backups", priority="background")
