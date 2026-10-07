@@ -623,7 +623,8 @@ class EndKeepPlugin(Plugin):
 
         if snapshot:
             pieces.append(f"snapshot={snapshot}")
-        pieces.append(f"elapsed={EndKeepPlugin._format_elapsed(elapsed)}")
+        display_elapsed = stage_elapsed if logicalizing else elapsed
+        pieces.append(f"elapsed={EndKeepPlugin._format_elapsed(display_elapsed)}")
         return "Progress: " + " · ".join(pieces)
 
     @staticmethod
