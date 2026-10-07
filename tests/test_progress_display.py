@@ -19,10 +19,7 @@ def test_base_progress_formats_millions_and_k_per_second() -> None:
         }
     )
 
-    assert rendered == (
-        "Progress: 1.48M records · 47.8k/s · "
-        "snapshot=20261007-203006 · elapsed=00:31"
-    )
+    assert rendered == ("Progress: 1.48M records · 47.8k/s · snapshot=20261007-203006 · elapsed=00:31")
 
 
 def test_delta_progress_formats_estimated_percent_millions_and_rate() -> None:
@@ -39,10 +36,7 @@ def test_delta_progress_formats_estimated_percent_millions_and_rate() -> None:
         }
     )
 
-    assert rendered == (
-        "Progress: ~59.5% · 1.31M keys · 54.6k/s · "
-        "snapshot=20261007-234502 · elapsed=00:24"
-    )
+    assert rendered == ("Progress: ~59.5% · 1.31M keys · 54.6k/s · snapshot=20261007-234502 · elapsed=00:24")
 
 
 def test_delta_progress_estimate_converges_without_exceeding_total() -> None:
