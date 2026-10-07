@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Persist and coalesce overlapping scheduled maintenance into a single pending slot.
 
 ### Changed
+- Show BASE/DELTA logicalization throughput in `k/s`, compact million-scale counts with `M`, and an estimated DELTA completion percentage without an extra LevelDB scan.
 - Preserve active repository work across Endstone plugin reloads by reconnecting to the existing worker.
 - Recursively add newly introduced default configuration keys at startup while preserving existing and unknown settings.
 - Keep FULL maintenance's built-in repository verification structural even when manual verification is configured as deep.
