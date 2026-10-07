@@ -18,7 +18,7 @@ from .objects import ObjectMetadata, ObjectStore
 from .reader import RepositoryReader
 from .transaction import RepositoryTransaction
 
-type LogicalizeProgress = Callable[[str, int | None, str | None, str | None], None]
+type LogicalizeProgress = Callable[[str, int | None, int | None, str | None, str | None], None]
 type CancelCheck = Callable[[], None]
 
 
@@ -79,7 +79,7 @@ class Logicalizer:
             ):
                 raise ValueError(f"raw snapshot {raw.snapshot_id} is not newer than repository tail {tail.snapshot}")
 
-        self._report(progress, "clone", None, None, raw.snapshot_id)
+        self._report(progress, "clone", None, None, None, raw.snapshot_id)
         clone_world(raw.path, raw.manifest.world_name, self.work_root, raw.snapshot_id)
         self._checkpoint(cancel_check)
 
@@ -113,7 +113,7 @@ class Logicalizer:
             self._checkpoint(cancel_check)
             generation = 1 if current_manifest is None else current_manifest.generation + 1
             new_manifest = RepositoryManifest(generation=generation, chain=tuple(new_chain))
-            self._report(progress, "commit", None, None, raw.snapshot_id)
+            self._report(progress, "commit", None, None, None, raw.snapshot_id)
             RepositoryTransaction(self.manifests).commit(new_manifest)
         finally:
             remove_processing_clone(self.work_root, raw.snapshot_id)
@@ -152,10 +152,10 @@ class Logicalizer:
         def advance(amount: int) -> None:
             nonlocal completed
             completed += amount
-            self._report(progress, "scan+compress", completed, "records", raw.snapshot_id)
+            self._report(progress, "scan+compress", completed, None, "records", raw.snapshot_id)
             self._checkpoint(cancel_check)
 
-        self._report(progress, "scan+compress", 0, "records", raw.snapshot_id)
+        self._report(progress, "scan+compress", 0, None, "records", raw.snapshot_id)
         with iter_visible_state(db_path) as current:
             object_meta, stats = self.objects.create(
                 lambda stream: write_base(
@@ -197,15 +197,30 @@ class Logicalizer:
     ) -> tuple[SnapshotNode, tuple[int, int, int, int]]:
         stats = DiffStats()
         previous = self.reader.iter_state(current_manifest)
-        scanned = 0
+        previous_total = current_manifest.chain[-1].records
 
-        def advance(amount: int) -> None:
-            nonlocal scanned
-            scanned += amount
-            self._report(progress, "diff+compress", scanned, "keys", raw.snapshot_id)
+        def advance(_amount: int) -> None:
+            previous_consumed = stats.unchanged + stats.changed + stats.deleted
+            processed = previous_consumed + stats.inserted
+            estimated_total = previous_total + stats.inserted
+            self._report(
+                progress,
+                "diff+compress",
+                processed,
+                estimated_total,
+                "keys",
+                raw.snapshot_id,
+            )
             self._checkpoint(cancel_check)
 
-        self._report(progress, "diff+compress", 0, "keys", raw.snapshot_id)
+        self._report(
+            progress,
+            "diff+compress",
+            0,
+            previous_total,
+            "keys",
+            raw.snapshot_id,
+        )
         with iter_visible_state(db_path) as current:
             object_meta, delta_stats = self.objects.create(
                 lambda stream: write_delta(
@@ -250,7 +265,7 @@ class Logicalizer:
         progress: LogicalizeProgress | None,
         cancel_check: CancelCheck | None,
     ) -> tuple[ObjectMetadata, SidecarStats]:
-        self._report(progress, "sidecar", None, None, raw.snapshot_id)
+        self._report(progress, "sidecar", None, None, None, raw.snapshot_id)
         self._checkpoint(cancel_check)
         metadata, stats = self.objects.create(
             lambda stream: write_sidecar(stream, raw.path, raw.manifest.sidecar_entries)
@@ -263,11 +278,12 @@ class Logicalizer:
         progress: LogicalizeProgress | None,
         detail: str,
         current: int | None,
+        total: int | None,
         unit: str | None,
         snapshot: str | None,
     ) -> None:
         if progress is not None:
-            progress(detail, current, unit, snapshot)
+            progress(detail, current, total, unit, snapshot)
 
     @staticmethod
     def _checkpoint(cancel_check: CancelCheck | None) -> None:
