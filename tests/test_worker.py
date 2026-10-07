@@ -112,8 +112,6 @@ def test_worker_starts_reconnects_and_runs_normal_verify(tmp_path: Path, monkeyp
                 pass
 
 
-
-
 def test_full_maintenance_honors_configured_deep_verify(tmp_path: Path) -> None:
     storage = tmp_path / "backups"
     client = RepositoryWorkerClient.connect_or_start(storage, priority="background")
@@ -148,6 +146,7 @@ def test_full_maintenance_honors_configured_deep_verify(tmp_path: Path) -> None:
                 RepositoryWorkerClient._wait_for_exit(current.pid, storage / "worker-runtime.json")
             except Exception:
                 pass
+
 
 def test_control_poll_does_not_touch_repository_disk_state(tmp_path: Path) -> None:
     app = WorkerApplication(tmp_path / "backups", priority="background")
