@@ -113,6 +113,7 @@ class ProgressTracker:
                 if stage_index != self._stage_index:
                     self._stage_index = stage_index
                     self._stage_started = time.monotonic()
+                    self._approximate = False
             self._current = current
             self._total = total
             self._unit = unit
