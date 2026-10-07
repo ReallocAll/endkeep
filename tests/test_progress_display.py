@@ -33,7 +33,7 @@ def test_delta_progress_formats_estimated_percent_millions_and_rate() -> None:
             "unit": "keys",
             "detail": "diff+compress",
             "snapshot": "20261007-234502",
-            "elapsed_seconds": 24.0,
+            "elapsed_seconds": 55.0,
             "stage_elapsed_seconds": 24.0,
             "approximate": True,
         }
