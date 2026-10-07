@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Show stage-level tqdm progress for long-running standalone offline verify and restore operations.
+- Add `--verbose` diagnostics for object roles, BASE/DELTA details, byte counts, state digests, and timings.
+
+### Changed
+- Report object verification progress as an object count instead of summed compressed-plus-logical bytes, avoiding misleading apparent repository sizes.
+
 ## [0.1.4] - 2026-10-06
 
 ### Changed

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -33,6 +33,7 @@ def write_fresh_leveldb(
     state: Iterable[tuple[bytes, bytes]],
     *,
     batch_records: int = 4096,
+    progress: Callable[[int], None] | None = None,
 ) -> tuple[int, int]:
     """Build a fresh Bedrock LevelDB from canonical visible state."""
 
@@ -56,10 +57,16 @@ def write_fresh_leveldb(
             value_bytes += len(value)
             previous = key
             if len(batch) >= batch_records:
+                completed = len(batch)
                 db.put_batch(batch)
                 batch.clear()
+                if progress is not None:
+                    progress(completed)
         if batch:
+            completed = len(batch)
             db.put_batch(batch)
+            if progress is not None:
+                progress(completed)
     finally:
         db.close()
     return records, value_bytes

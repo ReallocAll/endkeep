@@ -189,6 +189,10 @@ endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo v
 endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo restore /path/to/new-world
 ```
 
+Long-running `verify` and `restore` operations show stage-level tqdm progress by default. Add
+`--verbose` to either command to include object roles, BASE/DELTA details, logical/compressed
+byte counts, state digests, and per-step timings.
+
 To restore a specific recovery point:
 
 ```bash

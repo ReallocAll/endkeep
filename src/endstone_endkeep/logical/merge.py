@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 
 from .format import DeltaOperation, encode_uvarint
@@ -61,10 +61,19 @@ class StateStats:
     sha256: str
 
 
-def hash_state(state: Iterable[tuple[bytes, bytes]]) -> StateStats:
+def hash_state(
+    state: Iterable[tuple[bytes, bytes]],
+    *,
+    progress: Callable[[int], None] | None = None,
+    progress_interval: int = 16384,
+) -> StateStats:
+    if progress_interval <= 0:
+        raise ValueError("progress_interval must be positive")
+
     hasher = hashlib.sha256()
     records = 0
     value_bytes = 0
+    pending_progress = 0
     previous: bytes | None = None
     for key, value in state:
         if previous is not None and key <= previous:
@@ -76,4 +85,14 @@ def hash_state(state: Iterable[tuple[bytes, bytes]]) -> StateStats:
         previous = key
         records += 1
         value_bytes += len(value)
+
+        if progress is not None:
+            pending_progress += 1
+            if pending_progress >= progress_interval:
+                progress(pending_progress)
+                pending_progress = 0
+
+    if progress is not None and pending_progress:
+        progress(pending_progress)
+
     return StateStats(records, value_bytes, hasher.hexdigest())
