@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- Make `verify.mode` control the verification performed by FULL maintenance.
+- Make `/backup verify` always run normal verification and add `/backup verify deep` for explicit deep verification.
+- Label the configured status field as `full_verify` to make its scope explicit.
+
 ## [0.1.6] - 2026-10-07
 
 ### Added
