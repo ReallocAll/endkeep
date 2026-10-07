@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-07
+
 ### Changed
 - Make `verify.mode` control the verification performed by FULL maintenance.
 - Make `/backup verify` always run normal verification and add `/backup verify deep` for explicit deep verification.
