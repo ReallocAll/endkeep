@@ -161,6 +161,7 @@ class RepositoryService:
         self,
         detail: str,
         current: int | None,
+        total: int | None,
         unit: str | None,
         snapshot: str | None,
     ) -> None:
@@ -176,10 +177,11 @@ class RepositoryService:
         self.tracker.update(
             stage=stage,
             current=current,
-            total=None,
+            total=total,
             unit=unit,
             snapshot=snapshot,
             detail=detail,
+            approximate=detail == "diff+compress",
             cancelable=not committing,
         )
         if not committing:

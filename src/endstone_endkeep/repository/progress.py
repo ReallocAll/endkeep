@@ -25,6 +25,8 @@ class JobStatus:
     snapshot: str | None
     detail: str | None
     elapsed_seconds: float
+    stage_elapsed_seconds: float
+    approximate: bool
     cancelable: bool
 
     def to_dict(self) -> dict:
@@ -45,6 +47,8 @@ class ProgressTracker:
         self._snapshot: str | None = None
         self._detail: str | None = None
         self._started = 0.0
+        self._stage_started = 0.0
+        self._approximate = False
         self._cancel_requested = False
         self._cancelable = False
 
@@ -63,6 +67,8 @@ class ProgressTracker:
             self._snapshot = None
             self._detail = None
             self._started = time.monotonic()
+            self._stage_started = self._started
+            self._approximate = False
             self._cancel_requested = False
             self._cancelable = True
 
@@ -79,6 +85,8 @@ class ProgressTracker:
             self._snapshot = None
             self._detail = None
             self._started = 0.0
+            self._stage_started = 0.0
+            self._approximate = False
             self._cancel_requested = False
             self._cancelable = False
 
@@ -91,6 +99,7 @@ class ProgressTracker:
         unit: str | None = None,
         snapshot: str | None = None,
         detail: str | None = None,
+        approximate: bool | None = None,
         cancelable: bool | None = None,
     ) -> None:
         with self._lock:
@@ -98,14 +107,20 @@ class ProgressTracker:
                 return
             if stage is not None:
                 try:
-                    self._stage_index = self._stages.index(stage)
+                    stage_index = self._stages.index(stage)
                 except ValueError as exc:
                     raise ValueError(f"unknown job stage: {stage}") from exc
+                if stage_index != self._stage_index:
+                    self._stage_index = stage_index
+                    self._stage_started = time.monotonic()
+                    self._approximate = False
             self._current = current
             self._total = total
             self._unit = unit
             self._snapshot = snapshot
             self._detail = detail
+            if approximate is not None:
+                self._approximate = approximate
             if cancelable is not None:
                 self._cancelable = cancelable
             self._state = "cancel_requested" if self._cancel_requested else "running"
@@ -125,7 +140,9 @@ class ProgressTracker:
 
     def snapshot(self) -> JobStatus:
         with self._lock:
-            elapsed = 0.0 if self._started == 0.0 else max(0.0, time.monotonic() - self._started)
+            now = time.monotonic()
+            elapsed = 0.0 if self._started == 0.0 else max(0.0, now - self._started)
+            stage_elapsed = 0.0 if self._stage_started == 0.0 else max(0.0, now - self._stage_started)
             state: JobState = "cancel_requested" if self._cancel_requested else self._state
             return JobStatus(
                 state=state,
@@ -139,5 +156,7 @@ class ProgressTracker:
                 snapshot=self._snapshot,
                 detail=self._detail,
                 elapsed_seconds=elapsed,
+                stage_elapsed_seconds=stage_elapsed,
+                approximate=self._approximate,
                 cancelable=self._cancelable,
             )

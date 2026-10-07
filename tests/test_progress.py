@@ -60,3 +60,24 @@ def test_finish_resets_progress_state() -> None:
     assert status.kind is None
     assert status.stages == ()
     assert status.elapsed_seconds == 0.0
+
+
+def test_stage_elapsed_resets_when_stage_changes(monkeypatch) -> None:
+    clock = [10.0]
+    monkeypatch.setattr("endstone_endkeep.repository.progress.time.monotonic", lambda: clock[0])
+
+    tracker = ProgressTracker()
+    tracker.begin("maintenance", ("Clone", "Logicalize", "Finalize"), mode="LOGIC_ONLY")
+
+    clock[0] = 15.0
+    tracker.update(stage="Clone", detail="clone")
+    assert tracker.snapshot().stage_elapsed_seconds == 5.0
+
+    clock[0] = 20.0
+    tracker.update(stage="Logicalize", current=1000, unit="records", detail="scan+compress")
+    assert tracker.snapshot().stage_elapsed_seconds == 0.0
+
+    clock[0] = 25.0
+    status = tracker.snapshot()
+    assert status.stage_elapsed_seconds == 5.0
+    assert status.elapsed_seconds == 15.0
