@@ -596,13 +596,28 @@ class EndKeepPlugin(Plugin):
         detail = job.get("detail")
         snapshot = job.get("snapshot")
         elapsed = float(job.get("elapsed_seconds") or 0.0)
+        stage_elapsed = float(job.get("stage_elapsed_seconds") or 0.0)
+        approximate = bool(job.get("approximate", False))
+        logicalizing = detail in ("scan+compress", "diff+compress")
 
         pieces: list[str] = []
-        if current is not None and total not in (None, 0):
+        if logicalizing and current is not None:
+            if total not in (None, 0):
+                percent = min(100.0, float(current) * 100.0 / float(total))
+                prefix = "~" if approximate else ""
+                pieces.append(f"{prefix}{percent:.1f}%")
+            pieces.append(f"{EndKeepPlugin._format_count(int(current))} {unit or ''}".strip())
+            if stage_elapsed > 0.0:
+                rate_k = float(current) / stage_elapsed / 1000.0
+                pieces.append(f"{rate_k:.1f}k/s")
+        elif current is not None and total not in (None, 0):
             percent = float(current) * 100.0 / float(total)
-            pieces.append(f"{current} / {total} {unit or ''} ({percent:.1f}%)".strip())
+            pieces.append(
+                f"{EndKeepPlugin._format_count(int(current))} / "
+                f"{EndKeepPlugin._format_count(int(total))} {unit or ''} ({percent:.1f}%)".strip()
+            )
         elif current is not None:
-            pieces.append(f"{current} {unit or ''}".strip())
+            pieces.append(f"{EndKeepPlugin._format_count(int(current))} {unit or ''}".strip())
         elif detail:
             pieces.append(str(detail))
 
@@ -610,6 +625,12 @@ class EndKeepPlugin(Plugin):
             pieces.append(f"snapshot={snapshot}")
         pieces.append(f"elapsed={EndKeepPlugin._format_elapsed(elapsed)}")
         return "Progress: " + " · ".join(pieces)
+
+    @staticmethod
+    def _format_count(value: int) -> str:
+        if abs(value) >= 1_000_000:
+            return f"{value / 1_000_000:.2f}M"
+        return str(value)
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
