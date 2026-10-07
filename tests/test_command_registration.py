@@ -5,7 +5,7 @@ def test_maintenance_command_uses_each_enum_type_once() -> None:
     usages = EndKeepPlugin.commands["backup"]["usages"]
 
     assert usages == [
-        "/backup (status|create|list|verify|reload)<action: EndKeepBackupAction>",
+        "/backup (status|create|list|verify|cancel|reload)<action: EndKeepBackupAction>",
         "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
     ]
 
