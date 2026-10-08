@@ -85,9 +85,20 @@ class StartupRecovery:
                 raise ManifestError("HEAD is invalid and no valid manifest generation exists")
             return None, None
 
-        # A generation is renamed only after all referenced objects are durable. If a
-        # crash happens before HEAD moves, promoting the latest structurally valid
-        # generation is safe and avoids a stale-generation collision on the next write.
+        # HEAD, not the newest manifest file, is the commit point. A crashed
+        # transaction may leave a complete generation on disk without publishing it.
+        # Preserve the old recovery chain and discard those unpublished manifests.
+        if head_generation is not None:
+            try:
+                current = self.manifests.load_generation(head_generation)
+                if self._manifest_structurally_valid(current):
+                    self.manifests.discard_unpublished()
+                    return current, None
+            except (ManifestError, OSError, ValueError):
+                pass
+
+        # Only recover from the newest structurally valid generation when HEAD
+        # itself is missing, unreadable, or references invalid data.
         for generation in reversed(generations):
             try:
                 candidate = self.manifests.load_generation(generation)
