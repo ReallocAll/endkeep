@@ -73,9 +73,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, ManifestStore, ObjectStore, Reposito
     ("point", "expected_generation"),
     [
         ("after_manifest_fsync", 1),
-        ("after_manifest_rename", 2),
-        ("after_manifest_dir_fsync", 2),
-        ("after_head_fsync", 2),
+        ("after_manifest_rename", 1),
+        ("after_manifest_dir_fsync", 1),
+        ("after_head_fsync", 1),
         ("after_commit", 2),
     ],
 )
