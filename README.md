@@ -175,7 +175,7 @@ A normal Endstone `/reload` detaches the plugin controller but leaves an active 
 running. The new plugin instance reconnects to the same worker and continues observing the existing
 job instead of restarting it.
 
-There is intentionally no online `/backup restore`.
+There is intentionally no online `/backup restore`, `/backup delete`, or `/backup rollover`.
 
 ## Storage layout
 
@@ -240,6 +240,25 @@ endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo r
 Long-running `verify` and `restore` operations show stage-level tqdm progress by default. Add
 `--verbose` to either command to include object roles, BASE/DELTA details, logical/compressed
 byte counts, state digests, and per-step timings.
+
+To delete a specific committed recovery point or force a new BASE boundary, use the **offline-only**
+standalone CLI with the repository quiescent (stop BDS and EndKeep's worker first):
+
+```bash
+endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo delete 20261006-163000
+endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo rollover 20261006-163000
+```
+
+Both commands acquire the repository lock and require typing `yes` before committing. For
+non-interactive automation, append `--yes`. Deleting a DELTA at the tail removes only that
+snapshot; deleting a middle DELTA synthesizes and verifies a bridge DELTA so later recovery
+points remain usable. Deleting the current BASE materializes the next snapshot as BASE.
+Deleting the only remaining recovery point is refused. `rollover` promotes the selected
+snapshot to BASE and removes all older recovery points from the current manifest.
+
+These operations do not run GC or erase immutable objects. Unreferenced objects are reported
+and can be cleaned during a later scheduled FULL maintenance. Review the plan carefully:
+`rollover` intentionally makes **all earlier recovery points unavailable**.
 
 To restore a specific recovery point:
 
