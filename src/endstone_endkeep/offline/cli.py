@@ -171,9 +171,6 @@ def command_mutation(
 ) -> int:
     manifests, objects, reader = _runtime(repo)
     with RepositoryLock(repo):
-        # Discard a manifest generation left unpublished by an earlier interrupted transaction.
-        # HEAD is authoritative; a future commit must not collide with an abandoned generation.
-        manifests.discard_unpublished()
         manifest = _load_manifest(manifests)
         index = reader._index_of(manifest, snapshot)
         if operation == "delete":
@@ -211,6 +208,9 @@ def command_mutation(
                 print("ABORTED (no changes committed)")
                 return 1
 
+        # Cleanup is part of the confirmed transaction, never the preview.
+        # HEAD remains authoritative if a prior commit was interrupted.
+        manifests.discard_unpublished()
         mutator = SnapshotMutator(manifests, objects)
         if operation == "delete":
             updated = mutator.delete(manifest, snapshot)
