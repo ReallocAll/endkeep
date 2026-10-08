@@ -6,12 +6,14 @@ from pathlib import Path
 import pytest
 
 from endstone_endkeep.logical.amulet_reader import iter_visible_state
+from endstone_endkeep.logical.format import iter_delta
 from endstone_endkeep.offline.cli import build_parser, command_mutation, command_restore, command_verify
 from endstone_endkeep.repository.lock import RepositoryLock
 from endstone_endkeep.repository.logicalize import Logicalizer
 from endstone_endkeep.repository.manifest import ManifestStore
 from endstone_endkeep.repository.mutation import SnapshotMutator
 from endstone_endkeep.repository.objects import ObjectStore
+from endstone_endkeep.repository.reader import RepositoryReader
 from endstone_endkeep.repository.recovery import StartupRecovery
 from tests.standalone_fixture import add_raw, build_fixture
 
@@ -22,7 +24,7 @@ S4 = "20261006-230000"
 STATES = {
     S1: [(b"a", b"1"), (b"b", b"2")],
     S2: [(b"b", b"changed"), (b"c", b"3")],
-    S3: [(b"a", b"new"), (b"b", b"changed"), (b"c", b"3")],
+    S3: [(b"a", b"new"), (b"b", b"changed")],
     S4: [(b"a", b"new"), (b"c", b"4"), (b"d", b"last")],
 }
 SIDECARS = {S1: b"first", S2: b"second", S3: b"third", S4: b"fourth"}
@@ -81,6 +83,33 @@ def test_offline_mutations_preserve_every_retained_restore(
         assert updated.chain[1].object != original.chain[2].object
         assert updated.chain[1].state_sha256 == original.chain[2].state_sha256
         assert updated.chain[1].sidecar == original.chain[2].sidecar
+    _assert_recoverable(tmp_path, store)
+
+
+
+def test_middle_delete_replays_predecessor_once_and_cancels_transient_keys(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _storage, store, objects = _fixture(tmp_path)
+    current = store.load_current()
+    assert current is not None
+    original_iter_state = RepositoryReader.iter_state
+    replays: list[str | None] = []
+
+    def tracked_iter_state(self, manifest, *, snapshot=None):
+        replays.append(snapshot)
+        return original_iter_state(self, manifest, snapshot=snapshot)
+
+    monkeypatch.setattr(RepositoryReader, "iter_state", tracked_iter_state)
+    with RepositoryLock(store.repo_root):
+        updated = SnapshotMutator(store, objects).delete(current, S2)
+
+    # The deleted DELTA inserted c; its successor deleted c. Neither
+    # operation should survive in the bridge from S1 directly to S3.
+    with objects.open_logical(updated.chain[1].object) as stream:
+        bridge_operations = list(iter_delta(stream))
+    assert not any(operation.key == b"c" for operation in bridge_operations)
+    assert replays == [S1, S3]
     _assert_recoverable(tmp_path, store)
 
 
