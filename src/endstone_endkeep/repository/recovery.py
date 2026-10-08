@@ -94,7 +94,7 @@ class StartupRecovery:
                 if self._manifest_structurally_valid(current):
                     self.manifests.discard_unpublished()
                     return current, None
-            except (ManifestError, OSError, ValueError):
+            except ManifestError, OSError, ValueError:
                 pass
 
         # Only recover from the newest structurally valid generation when HEAD
