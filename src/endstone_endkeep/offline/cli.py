@@ -185,10 +185,7 @@ def command_mutation(
             elif index == len(manifest.chain) - 1:
                 detail = "remove tail DELTA"
             else:
-                detail = (
-                    f"bridge DELTA {manifest.chain[index - 1].snapshot} -> "
-                    f"{manifest.chain[index + 1].snapshot}"
-                )
+                detail = f"bridge DELTA {manifest.chain[index - 1].snapshot} -> {manifest.chain[index + 1].snapshot}"
         elif operation == "rollover":
             if index == 0:
                 raise ValueError("selected snapshot is already the BASE")
