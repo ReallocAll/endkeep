@@ -86,10 +86,7 @@ def test_offline_mutations_preserve_every_retained_restore(
     _assert_recoverable(tmp_path, store)
 
 
-
-def test_middle_delete_replays_predecessor_once_and_cancels_transient_keys(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_middle_delete_replays_predecessor_once_and_cancels_transient_keys(tmp_path: Path, monkeypatch) -> None:
     _storage, store, objects = _fixture(tmp_path)
     current = store.load_current()
     assert current is not None
