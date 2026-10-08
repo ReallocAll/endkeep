@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import replace
+from itertools import tee
 
 from endstone_endkeep.logical.diff import DiffStats, semantic_diff
-from endstone_endkeep.logical.format import write_delta
-from endstone_endkeep.logical.merge import hash_state
+from endstone_endkeep.logical.format import iter_delta, write_delta
+from endstone_endkeep.logical.merge import apply_delta, hash_state
 
 from .manifest import ManifestStore, RepositoryManifest
 from .objects import ObjectStore
@@ -45,17 +47,24 @@ class SnapshotMutator:
             successor = manifest.chain[index + 1]
             stats = DiffStats()
 
-            # Both iterators are streaming. No complete LevelDB state is held in memory.
-            object_meta, _delta_stats = self.objects.create(
-                lambda stream: write_delta(
-                    stream,
-                    semantic_diff(
-                        self.reader.iter_state(manifest, snapshot=previous.snapshot),
-                        self.reader.iter_state(manifest, snapshot=successor.snapshot),
-                        stats,
-                    ),
+            # Reconstruct the predecessor once, then replay only the two DELTAs
+            # adjacent to the removed snapshot. tee() remains bounded because
+            # semantic_diff consumes both sorted predecessor views in key order.
+            with ExitStack() as stack:
+                predecessor = self.reader.iter_state(manifest, snapshot=previous.snapshot)
+                stack.callback(predecessor.close)
+                before, replay = tee(predecessor)
+                removed_stream = stack.enter_context(self.objects.open_logical(manifest.chain[index].object))
+                successor_stream = stack.enter_context(self.objects.open_logical(successor.object))
+                after = apply_delta(
+                    apply_delta(replay, iter_delta(removed_stream)),
+                    iter_delta(successor_stream),
                 )
-            )
+                object_meta, delta_stats = self.objects.create(
+                    lambda stream: write_delta(stream, semantic_diff(before, after, stats))
+                )
+            if delta_stats.records != stats.delta_records:
+                raise RuntimeError("bridge DELTA operation count does not match semantic diff stats")
             self._check_stats(
                 successor,
                 stats.state_sha256,
