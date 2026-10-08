@@ -163,6 +163,32 @@ class ManifestStore:
         current = self.load_current()
         return 1 if current is None else current.generation + 1
 
+    def discard_unpublished(self) -> int:
+        """Discard abandoned future manifest generations while retaining authoritative HEAD.
+
+        Must be called under RepositoryLock. No referenced immutable object is deleted.
+        """
+        current = self.load_current()
+        if current is None:
+            return 0
+
+        removed = 0
+        for path in self.manifests_root.glob("manifest-*.json"):
+            number = path.stem.removeprefix("manifest-")
+            if len(number) != 8 or not number.isdigit():
+                continue
+            if int(number) > current.generation:
+                path.unlink()
+                removed += 1
+        if removed:
+            self.fsync_directory(self.manifests_root)
+
+        for path in (self.repo_root / "HEAD.part", *self.manifests_root.glob("manifest-*.json.part")):
+            if path.exists():
+                path.unlink()
+                self.fsync_directory(path.parent)
+        return removed
+
     @staticmethod
     def encode(manifest: RepositoryManifest) -> bytes:
         return (json.dumps(manifest.to_dict(), indent=2, sort_keys=True) + "\n").encode("utf-8")

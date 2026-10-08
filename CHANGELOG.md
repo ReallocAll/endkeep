@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Add offline-only confirmed `delete SNAPSHOT` and `rollover SNAPSHOT` repository mutations.
+- Rebuild and verify bridge DELTAs when deleting an intermediate recovery point; preserve retained restore chains without implicit GC.
+
+### Changed
+- Stream middle-snapshot bridge DELTAs from a single predecessor replay, reducing redundant chain reads and open file descriptors.
+
+### Fixed
+- Treat HEAD as the authoritative transaction commit point during startup recovery instead of promoting unpublished manifest generations.
+
 ## [0.1.7] - 2026-10-07
 
 ### Changed

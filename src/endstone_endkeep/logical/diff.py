@@ -114,3 +114,80 @@ def semantic_diff(
 
     if progress is not None and pending_progress:
         progress(pending_progress)
+
+
+def compose_delta_pair(
+    previous: Iterable[tuple[bytes, bytes]],
+    first: Iterable[DeltaOperation],
+    second: Iterable[DeltaOperation],
+    stats: DiffStats,
+) -> Iterator[DeltaOperation]:
+    """Build the minimal previous-to-successor DELTA in one bounded-memory pass.
+
+    The two input DELTAs apply in order. Each key is processed once against its
+    original value, so an insertion followed by a deletion emits no operation.
+    """
+
+    missing = object()
+    previous_it = iter(previous)
+    first_it = iter(first)
+    second_it = iter(second)
+    previous_item = next(previous_it, missing)
+    first_item = next(first_it, missing)
+    second_item = next(second_it, missing)
+    last_key: bytes | None = None
+
+    while previous_item is not missing or first_item is not missing or second_item is not missing:
+        keys = []
+        if previous_item is not missing:
+            keys.append(previous_item[0])
+        if first_item is not missing:
+            keys.append(first_item.key)
+        if second_item is not missing:
+            keys.append(second_item.key)
+        key = min(keys)
+        if last_key is not None and key <= last_key:
+            raise ValueError("bridge inputs are not in strictly increasing key order")
+        last_key = key
+
+        original = missing
+        if previous_item is not missing and previous_item[0] == key:
+            original = previous_item[1]
+            previous_item = next(previous_it, missing)
+
+        operations = []
+        if first_item is not missing and first_item.key == key:
+            operations.append(first_item)
+            first_item = next(first_it, missing)
+        if second_item is not missing and second_item.key == key:
+            operations.append(second_item)
+            second_item = next(second_it, missing)
+
+        result = original
+        for operation in operations:
+            if operation.kind == "delete":
+                if result is missing:
+                    raise ValueError(f"DELTA deletes absent key {key!r}")
+                result = missing
+            elif operation.kind == "put":
+                if not isinstance(operation.value, bytes):
+                    raise ValueError(f"DELTA put has invalid value for key {key!r}")
+                result = operation.value
+            else:
+                raise ValueError(f"invalid DELTA operation: {operation.kind!r}")
+
+        if result is not missing:
+            stats.observe_current(key, result)
+
+        if original is missing:
+            if result is not missing:
+                stats.inserted += 1
+                yield DeltaOperation.put(key, result)
+        elif result is missing:
+            stats.deleted += 1
+            yield DeltaOperation.delete(key)
+        elif original == result:
+            stats.unchanged += 1
+        else:
+            stats.changed += 1
+            yield DeltaOperation.put(key, result)

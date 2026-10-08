@@ -12,8 +12,10 @@ from pathlib import Path
 from ..logical.amulet_reader import iter_visible_state, write_fresh_leveldb
 from ..logical.merge import hash_state
 from ..logical.sidecar import extract_sidecar
+from ..repository.gc import referenced_object_hashes
 from ..repository.lock import RepositoryLock
 from ..repository.manifest import ManifestStore, RepositoryManifest, SnapshotNode
+from ..repository.mutation import SnapshotMutator
 from ..repository.objects import ObjectMetadata, ObjectStore
 from ..repository.reader import RepositoryReader
 from ..repository.verify import RepositoryVerifier
@@ -158,6 +160,76 @@ def _verify_restore_dependencies(
     finally:
         if bar is not None:
             bar.close()
+
+
+def command_mutation(
+    repo: Path,
+    operation: str,
+    snapshot: str,
+    *,
+    yes: bool = False,
+) -> int:
+    manifests, objects, reader = _runtime(repo)
+    with RepositoryLock(repo):
+        manifest = _load_manifest(manifests)
+        index = reader._index_of(manifest, snapshot)
+        if operation == "delete":
+            if len(manifest.chain) == 1:
+                raise ValueError("cannot delete the only recovery point")
+            removed = (snapshot,)
+            if index == 0:
+                detail = f"replace BASE with {manifest.chain[1].snapshot}"
+            elif index == len(manifest.chain) - 1:
+                detail = "remove tail DELTA"
+            else:
+                detail = f"bridge DELTA {manifest.chain[index - 1].snapshot} -> {manifest.chain[index + 1].snapshot}"
+        elif operation == "rollover":
+            if index == 0:
+                raise ValueError("selected snapshot is already the BASE")
+            removed = tuple(node.snapshot for node in manifest.chain[:index])
+            detail = f"promote {snapshot} to BASE; discard {len(removed)} earlier recovery point(s)"
+        else:
+            raise ValueError(f"unknown repository mutation: {operation}")
+
+        print(f"EndKeep offline {operation}")
+        print(f"repository={repo} generation={manifest.generation} snapshots={len(manifest.chain)}")
+        print(f"target={snapshot} type={manifest.chain[index].type.upper()}")
+        print(f"plan={detail}")
+        print(f"unavailable_after_commit={', '.join(removed)}")
+        print("GC=not requested (unreferenced objects remain on disk)")
+        if not yes:
+            if not sys.stdin.isatty():
+                raise RuntimeError("mutation requires interactive confirmation or explicit --yes")
+            try:
+                answer = input("Type 'yes' to commit this repository mutation: ")
+            except EOFError:
+                answer = ""
+            if answer != "yes":
+                print("ABORTED (no changes committed)")
+                return 1
+
+        # Cleanup is part of the confirmed transaction, never the preview.
+        # HEAD remains authoritative if a prior commit was interrupted.
+        manifests.discard_unpublished()
+        mutator = SnapshotMutator(manifests, objects)
+        if operation == "delete":
+            updated = mutator.delete(manifest, snapshot)
+        else:
+            updated = mutator.rollover(manifest, snapshot)
+
+        referenced = referenced_object_hashes(updated)
+        all_objects = {path.stem for path in objects.objects_root.glob("*/*.zst")}
+        orphans = len(all_objects - referenced)
+
+    print("COMMITTED")
+    print(f"operation={operation} generation={manifest.generation}->{updated.generation}")
+    print(
+        f"snapshots={len(manifest.chain)}->{len(updated.chain)} "
+        f"base={updated.chain[0].snapshot} tail={updated.chain[-1].snapshot}"
+    )
+    print(f"unavailable={', '.join(removed)}")
+    print(f"orphan_objects={orphans} GC=not_run")
+    return 0
 
 
 def command_list(repo: Path, *, as_json: bool) -> int:
@@ -488,7 +560,7 @@ def _fsync_directory(path: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="endkeep-offline.py",
-        description="Offline EndKeep repository verification and world restore tool.",
+        description="Offline EndKeep repository verification, restore, and snapshot management tool.",
     )
     parser.add_argument(
         "--repo",
@@ -526,6 +598,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show object, BASE/DELTA, byte-count, and timing details",
     )
+    for name in ("delete", "rollover"):
+        mutation = subparsers.add_parser(
+            name,
+            help="Delete one snapshot" if name == "delete" else "Advance BASE to a retained snapshot",
+        )
+        mutation.add_argument("snapshot", help="Exact committed snapshot ID")
+        mutation.add_argument(
+            "--yes",
+            action="store_true",
+            help="Confirm without an interactive prompt (required for automation)",
+        )
     return parser
 
 
@@ -534,6 +617,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
 
+    if args.command in ("delete", "rollover"):
+        return command_mutation(repo, args.command, args.snapshot, yes=args.yes)
     if args.command == "list":
         return command_list(repo, as_json=args.json)
     if args.command == "verify":

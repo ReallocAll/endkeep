@@ -81,6 +81,22 @@ jobs:
           /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo restore /tmp/endkeep-restored
           test -f /tmp/endkeep-restored/level.dat
           test -d /tmp/endkeep-restored/db
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          from endstone_endkeep.repository.logicalize import Logicalizer
+          from tests.standalone_fixture import add_raw
+          storage = Path("/tmp/endkeep-fixture")
+          add_raw(storage, "20261006-200000", [(b"a", b"3"), (b"c", b"3")], b"third")
+          Logicalizer(storage, compression_level=6, compression_threads=1).logicalize(
+              storage / "raw" / "20261006-200000"
+          )
+          PY
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo delete 20261006-163000 --yes
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo rollover 20261006-200000 --yes
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo restore /tmp/endkeep-rolled
+          test -d /tmp/endkeep-rolled/db
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
