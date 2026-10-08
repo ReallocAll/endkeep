@@ -73,11 +73,7 @@ def test_offline_mutations_preserve_every_retained_restore(
     assert original is not None
     with RepositoryLock(store.repo_root):
         mutator = SnapshotMutator(store, objects)
-        updated = (
-            mutator.delete(original, snapshot)
-            if operation == "delete"
-            else mutator.rollover(original, snapshot)
-        )
+        updated = mutator.delete(original, snapshot) if operation == "delete" else mutator.rollover(original, snapshot)
 
     assert tuple(node.snapshot for node in updated.chain) == expected
     assert updated.generation == original.generation + 1
