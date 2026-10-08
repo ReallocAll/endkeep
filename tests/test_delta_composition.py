@@ -14,9 +14,7 @@ def test_composed_delta_matches_direct_semantic_diff() -> None:
 
     def state() -> list[tuple[bytes, bytes]]:
         return [
-            (f"key-{index:02d}".encode(), bytes((rng.randrange(256),)))
-            for index in range(40)
-            if rng.random() < 0.7
+            (f"key-{index:02d}".encode(), bytes((rng.randrange(256),))) for index in range(40) if rng.random() < 0.7
         ]
 
     cases = [(state(), state(), state()) for _ in range(100)]
