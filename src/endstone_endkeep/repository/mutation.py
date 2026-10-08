@@ -99,11 +99,7 @@ class SnapshotMutator:
 
     @staticmethod
     def _check_stats(node, digest: str, records: int, value_bytes: int) -> None:
-        if (
-            digest != node.state_sha256
-            or records != node.records
-            or value_bytes != node.value_bytes
-        ):
+        if digest != node.state_sha256 or records != node.records or value_bytes != node.value_bytes:
             raise RuntimeError(
                 f"rebuilt state does not match snapshot {node.snapshot}: "
                 f"sha256={digest} records={records} value_bytes={value_bytes}"
