@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-08
+
 ### Added
 - Add offline-only confirmed `delete SNAPSHOT` and `rollover SNAPSHOT` repository mutations.
 - Rebuild and verify bridge DELTAs when deleting an intermediate recovery point; preserve retained restore chains without implicit GC.
