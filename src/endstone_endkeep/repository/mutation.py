@@ -3,11 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import replace
-from itertools import tee
 
-from endstone_endkeep.logical.diff import DiffStats, semantic_diff
+from endstone_endkeep.logical.diff import DiffStats, compose_delta_pair
 from endstone_endkeep.logical.format import iter_delta, write_delta
-from endstone_endkeep.logical.merge import apply_delta, hash_state
+from endstone_endkeep.logical.merge import hash_state
 
 from .manifest import ManifestStore, RepositoryManifest
 from .objects import ObjectStore
@@ -47,21 +46,24 @@ class SnapshotMutator:
             successor = manifest.chain[index + 1]
             stats = DiffStats()
 
-            # Reconstruct the predecessor once, then replay only the two DELTAs
-            # adjacent to the removed snapshot. tee() remains bounded because
-            # semantic_diff consumes both sorted predecessor views in key order.
+            # Walk the predecessor and two adjacent DELTAs together. A single
+            # key-wise merge avoids replaying the old chain twice and never
+            # buffers the full world state, including when most keys disappear.
             with ExitStack() as stack:
                 predecessor = self.reader.iter_state(manifest, snapshot=previous.snapshot)
                 stack.callback(predecessor.close)
-                before, replay = tee(predecessor)
                 removed_stream = stack.enter_context(self.objects.open_logical(manifest.chain[index].object))
                 successor_stream = stack.enter_context(self.objects.open_logical(successor.object))
-                after = apply_delta(
-                    apply_delta(replay, iter_delta(removed_stream)),
-                    iter_delta(successor_stream),
-                )
                 object_meta, delta_stats = self.objects.create(
-                    lambda stream: write_delta(stream, semantic_diff(before, after, stats))
+                    lambda stream: write_delta(
+                        stream,
+                        compose_delta_pair(
+                            predecessor,
+                            iter_delta(removed_stream),
+                            iter_delta(successor_stream),
+                            stats,
+                        ),
+                    )
                 )
             if delta_stats.records != stats.delta_records:
                 raise RuntimeError("bridge DELTA operation count does not match semantic diff stats")
