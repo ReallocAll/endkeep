@@ -70,7 +70,7 @@ jobs:
         env:
           CIBW_BEFORE_BUILD: 'python -m pip install "cmake>=4.1,<5"'
           CIBW_BEFORE_TEST: 'python -m pip install "cmake>=4.1,<5"'
-          CIBW_TEST_COMMAND: 'python {project}/tests/test_backport_smoke.py'
+          CIBW_TEST_COMMAND: 'python {project}/tests/test_backport_smoke.py && python -m unittest discover -s {project}/tests -p test_db.py'
           CIBW_TEST_SOURCES: 'tests'
         run: |
           set -euo pipefail
@@ -105,3 +105,67 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
           retention-days: 14
+
+  publish-four-wheels:
+    name: Publish selectable backport wheels
+    needs: linux-wheels
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out notes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download all four independently tested Wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: amulet-leveldb-3.0.7a0-cp*-linux-x86_64
+          merge-multiple: true
+          path: dist
+
+      - name: Confirm four distinct CPython ABI wheels and checksums
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          from hashlib import sha256
+          tags = ('cp311', 'cp312', 'cp313', 'cp314')
+          wheels = sorted(Path('dist').glob('*.whl'))
+          assert len(wheels) == len(tags), [x.name for x in wheels]
+          for tag in tags:
+              matches = [p for p in wheels if f'-{tag}-{tag}-manylinux_' in p.name]
+              assert len(matches) == 1, (tag, [x.name for x in wheels])
+              with ZipFile(matches[0]) as archive:
+                  meta = next(x for x in archive.namelist() if x.endswith('.dist-info/METADATA'))
+                  data = archive.read(meta).decode('utf-8')
+                  assert 'Requires-Python: >=3.11' in data
+                  assert 'Name: amulet-leveldb' in data
+                  assert 'Version: 3.0.7a0+0.g736228e.dirty' in data
+                  assert any(x.endswith('.dist-info/licenses/LICENSE') for x in archive.namelist())
+          checksum = ''.join(
+              f'{sha256(p.read_bytes()).hexdigest()}  {p.name}\n'
+              for p in wheels
+          )
+          (Path('dist') / 'SHA256SUMS').write_text(checksum)
+          print(checksum)
+          PY
+
+      - name: Create dedicated prerelease with individually downloadable wheels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: amulet-leveldb-3.0.7a0-backport-cp311-cp314
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; keeping published binaries unchanged."
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/*.whl dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Amulet-LevelDB 3.0.7a0 backport (CPython 3.11–3.14, Linux x86-64)" \
+            --notes-file .github/amulet-leveldb-backport-release.md
