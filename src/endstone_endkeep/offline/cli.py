@@ -669,11 +669,11 @@ def install_server_launcher(data_folder: Path) -> Path:
     site_root = Path(__file__).resolve().parents[2]
     python = Path(sys.executable).resolve()
     contents = (
-        f"#!{python}\\n"
-        "import sys\\n"
-        f"sys.path.insert(0, {str(site_root)!r})\\n"
-        "from endstone_endkeep.offline.cli import main\\n"
-        "raise SystemExit(main())\\n"
+        f"#!{python}\n"
+        "import sys\n"
+        f"sys.path.insert(0, {str(site_root)!r})\n"
+        "from endstone_endkeep.offline.cli import main\n"
+        "raise SystemExit(main())\n"
     )
     temporary.write_text(contents, encoding="utf-8")
     temporary.chmod(0o755)
