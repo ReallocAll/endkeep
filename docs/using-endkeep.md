@@ -125,6 +125,25 @@ See `endkeep-offline.py --help` before using them.
 
 Keep an **independent off-host copy** of `backups/repo/` for machine-level recovery.
 
+## When repository verification fails
+
+A failed normal or deep verification records a persistent
+`backups/repository-health.json` marker (under the configured storage root).
+`/backup status` then reports `health=FAILED` and the reason. EndKeep blocks
+logicalization, maintenance, destructive snapshot operations, retention, rollover,
+and garbage collection until **`/backup verify deep` passes**.
+
+Raw capture can continue while the queue has spare capacity and the filesystem
+has enough free space. In this failed state EndKeep does **not** evict or
+logicalize old raw snapshots, even under pressure; it blocks new captures once
+raw capacity or free-space limits are reached. Startup recovery also preserves
+already committed raw snapshots while the marker exists.
+
+Investigate the error and preserve the repository before attempting repairs.
+Do not delete the health marker to bypass the safety interlock: repair or
+replace the damaged repository, then run `/backup verify deep` to re-enable
+maintenance. Keep independent off-host backups.
+
 ## Repository format compatibility
 
 The current repository manifest uses schema 1. EndKeep is pre-1.0 and does
