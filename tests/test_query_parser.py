@@ -36,6 +36,8 @@ def test_parse_manifest_from_translation_parameter() -> None:
         "level/db/A:1, other/db/B:1",
         "level/db/A:not-a-number",
         "level/db/A:1, level/db/A:2",
+        "level/C:/outside/level.dat:1",
+        "level/level.dat:stream:1",
     ],
 )
 def test_reject_unsafe_or_malformed_manifest(payload: str) -> None:
