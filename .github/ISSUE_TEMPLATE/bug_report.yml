@@ -1,32 +1,39 @@
 name: Bug Report
-description: Report a problem with the example plugin template
+description: Report an EndKeep backup, restore, or repository management bug
 labels: ["bug"]
 body:
   - type: textarea
     id: description
     attributes:
-      label: Description
-      description: What happened? What did you expect to happen?
+      label: What happened?
+      description: Explain the expected and actual behavior, including affected recovery points.
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Steps to Reproduce
-      description: How can we reproduce the issue?
-      placeholder: |
-        1. Clone the template
-        2. Run `uv sync --extra dev`
-        3. ...
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: endkeep-version
+    attributes:
+      label: EndKeep version
+      placeholder: "0.1.9"
     validations:
       required: true
   - type: input
     id: python-version
     attributes:
-      label: Python Version
-      placeholder: "3.12"
+      label: Python version
+      placeholder: "3.14"
   - type: input
     id: endstone-version
     attributes:
-      label: Endstone Version
-      placeholder: "0.11.2"
+      label: Endstone version
+      placeholder: "0.11.13"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (redact private data)
+      description: Do not attach player data, credentials, worker tokens or private world backups.

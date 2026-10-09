@@ -1,29 +1,23 @@
-# Contributing
+# Contributing to EndKeep
 
-Thanks for your interest in improving this template!
+EndKeep protects Minecraft Bedrock server world data. Changes to repository formats,
+capture, retention or restore require regression tests and restore validation.
 
-## Development Setup
+## Development
 
-```bash
-git clone https://github.com/EndstoneMC/python-example-plugin.git
-cd python-example-plugin
-uv sync --extra dev
+Linux, Python 3.14 and Endstone 0.11 are currently supported.
+
+```sh
+git clone https://github.com/ReallocAll/endkeep.git
+cd endkeep
+uv sync --python 3.14 --extra dev
+uv run ruff check src tests tools
+uv run ruff format --check src tests tools
+uv run pytest
 ```
 
-## Making Changes
+Create a branch, document any data-safety implications, add tests (including
+interrupted writes when relevant), update `CHANGELOG.md` and open a PR.
 
-1. Create a branch for your changes
-2. Run `uv run ruff check src/` before committing
-3. Update `CHANGELOG.md` under `## [Unreleased]` if your change is user-facing
-4. Open a pull request with a clear description of what changed and why
-
-## Code Style
-
-- Follow existing patterns in the codebase
-- Keep examples simple and well-commented (this is a teaching template)
-- Run `uv run ruff check src/` to lint
-
-## Reporting Issues
-
-Use [GitHub Issues](https://github.com/EndstoneMC/python-example-plugin/issues) for bugs
-and feature requests.
+Report bugs through [EndKeep Issues](https://github.com/ReallocAll/endkeep/issues).
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
