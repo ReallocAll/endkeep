@@ -28,6 +28,19 @@ Commands require `endkeep.admin` (operator/console by default).
 | `/backup verify [deep]` | Check repository integrity |
 | `/backup cancel` | Request cancellation at a safe checkpoint |
 | `/backup reload` | Reload configuration |
+| `/backup delete <id>` | Preview deletion of a recovery point |
+| `/backup rollover <id>` | Preview advancing BASE to a recovery point |
+| `/backup export <id>` | Restore a recovery point into a new `backups/exports/<id>/` directory |
+
+To delete or roll over, run the preview command first. EndKeep displays a confirmation
+command containing the current repository generation, for example
+`/backup delete 20261006-163000 confirm 2`. Confirmations reject a changed generation.
+Mutations never run concurrently with maintenance and do not immediately reclaim
+orphan objects; scheduled full maintenance handles garbage collection.
+
+Exports always go to `<storage.path>/exports/<snapshot-id>/`. They do not overwrite
+an existing directory or the active world. These jobs run in the repository
+worker and can take time; monitor them with `/backup status` and server logs.
 
 Captures use `save hold/query/resume`. Raw snapshots are queued in `backups/raw/`,
 then committed to `backups/repo/` during maintenance. The repository is the long-term
@@ -54,8 +67,8 @@ REPO=/path/to/backups/repo
 The restore destination must not exist. Restores rebuild the logical LevelDB state
 and verify the expected state digest; the resulting SST files need not be byte-identical.
 
-The offline tool also provides `delete` and `rollover` for retention management.
-Both can discard recovery points and must only be used with the repository quiescent.
+The standalone tool also provides `delete` and `rollover` for retention management
+when the plugin is unavailable. Run them only while the repository is quiescent.
 See `endkeep-offline.py --help` before using them.
 
 Keep an **independent off-host copy** of `backups/repo/` for machine-level recovery.

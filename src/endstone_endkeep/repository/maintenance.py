@@ -238,6 +238,10 @@ class RepositoryService:
     def request_cancel(self) -> bool:
         if self._closed or not self.busy:
             return False
+        # These operations have no cooperative checkpoints: never acknowledge a
+        # cancellation that cannot be honored.
+        if self.tracker.snapshot().kind in ("mutation", "export"):
+            return False
         return self.tracker.request_cancel()
 
     def poll(self) -> RepositoryJobResult | None:
