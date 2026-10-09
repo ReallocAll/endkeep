@@ -1,11 +1,8 @@
-# EndKeep v1
+# Manual validation
 
-EndKeep v1 is a crash-safe logical incremental backup system for Endstone / Bedrock Dedicated Server.
+These production checks require a running Bedrock Dedicated Server and are not part of regular CI.
 
-The pull request for `feat/endkeep-v1` is the authoritative implementation-status ledger. This document keeps the
-manual production smoke procedure that intentionally does not run in ordinary GitHub Actions.
-
-## Manual BDS capture smoke
+## Online capture
 
 Run this on a disposable copy or a server where a failed test capture can be safely discarded.
 
@@ -34,7 +31,7 @@ The validated reference world was about 444 MiB / 394 files:
 Storage hardware and world shape vary, so these are regression references rather than hard limits. A comparable world
 suddenly taking 10–20 seconds of hold time should be treated as a regression and investigated before release.
 
-## Manual repository-only disaster restore smoke
+## Offline disaster recovery
 
 **Stop BDS before restore. Never restore in place over the active world.**
 
