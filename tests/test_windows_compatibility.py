@@ -48,6 +48,7 @@ def test_windows_junctions_cannot_escape_staging_or_clone(tmp_path: Path) -> Non
     with pytest.raises(CloneError):
         clone_world(tmp_path / "worlds", "level", tmp_path / "work", "snapshot")
 
+
 def test_binary_staging_and_clone_are_byte_exact(tmp_path: Path) -> None:
     # LevelDB contains arbitrary binary bytes; Windows CRT text mode may
     # truncate at Ctrl-Z or change CRLF unless O_BINARY is explicit.

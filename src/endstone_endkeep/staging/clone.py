@@ -14,9 +14,7 @@ class CloneError(RuntimeError):
 
 def _copy_reflink_or_bytes(source: Path, destination: Path) -> None:
     source_fd = os.open(source, os.O_RDONLY | getattr(os, "O_BINARY", 0))
-    destination_fd = os.open(
-        destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600
-    )
+    destination_fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     try:
         cloned = False
         if os.name == "posix":
