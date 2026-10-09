@@ -47,3 +47,26 @@ def test_sidecar_restore_strips_world_prefix(tmp_path: Path) -> None:
     extract_sidecar(archive, destination, strip_prefix="level")
     assert (destination / "level.dat").read_bytes() == b"abc"
     assert not (destination / "level").exists()
+
+
+def test_sidecar_restore_preserves_binary_data(tmp_path: Path) -> None:
+    # Windows CRT text mode expands LF and can corrupt arbitrary binary data.
+    raw = tmp_path / "raw"
+    source = raw / "level" / "level.dat"
+    source.parent.mkdir(parents=True)
+    payload = bytes(range(256)) * 2 + b"\r\n\x1a\x00\xff"
+    source.write_bytes(payload)
+
+    archive = BytesIO()
+    write_sidecar(
+        archive,
+        raw,
+        (SnapshotEntry(PurePosixPath("level/level.dat"), len(payload)),),
+    )
+
+    destination = tmp_path / "restored-world"
+    destination.mkdir()
+    archive.seek(0)
+    restored = extract_sidecar(archive, destination, strip_prefix="level")
+    assert (restored.files, restored.bytes) == (1, len(payload))
+    assert (destination / "level.dat").read_bytes() == payload
