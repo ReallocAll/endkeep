@@ -16,7 +16,7 @@ from .transaction import RepositoryTransaction
 
 
 class SnapshotMutator:
-    """Offline-only snapshot edits. The caller must hold the repository lock."""
+    """Snapshot edits. The caller must serialize jobs and hold the repository lock."""
 
     def __init__(
         self,

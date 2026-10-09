@@ -81,6 +81,24 @@ class WorkerApplication:
                 if accepted:
                     self._active_request_id = request_id
                 return {"ok": True, "accepted": accepted, "status": self._status_locked()}
+            if command == "plan_mutation":
+                if not self._ready_for_new_job_locked():
+                    return {"ok": False, "error": "repository worker is busy"}
+                service = self._require_service()
+                return {
+                    "ok": True,
+                    "plan": service.plan_mutation(str(request.get("operation")), str(request.get("snapshot"))),
+                }
+            if command == "start_mutation":
+                if not self._ready_for_new_job_locked():
+                    return {"ok": True, "accepted": False, "status": self._status_locked()}
+                service = self._require_service()
+                accepted = service.start_mutation(
+                    str(request.get("operation")),
+                    str(request.get("snapshot")),
+                    int(request.get("expected_generation")),
+                )
+                return {"ok": True, "accepted": accepted, "status": self._status_locked()}
             if command == "start_pre_capture":
                 if not self._ready_for_new_job_locked():
                     return {"ok": True, "accepted": False, "status": self._status_locked()}

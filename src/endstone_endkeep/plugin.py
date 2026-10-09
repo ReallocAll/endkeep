@@ -27,6 +27,8 @@ class EndKeepPlugin(Plugin):
                 "/backup (status|create|list|cancel|reload)<action: EndKeepBackupAction>",
                 "/backup (verify)<action: EndKeepVerifyAction> (deep)[mode: EndKeepVerifyMode]",
                 "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
+                "/backup (delete|rollover)<action: EndKeepMutationAction> <snapshot: str> "
+                "(confirm)[approval: EndKeepMutationApproval] [generation: int]",
             ],
             "permissions": ["endkeep.admin"],
         }
@@ -101,6 +103,16 @@ class EndKeepPlugin(Plugin):
             if len(args) > 2 or (len(args) == 2 and not deep):
                 return False
             self._command_verify(sender, deep=deep)
+            return True
+        if action in ("delete", "rollover"):
+            if len(args) not in (2, 4):
+                return False
+            if len(args) == 4 and (args[2] != "confirm" or not args[3].isdigit()):
+                return False
+            self._command_mutation(
+                sender, action, args[1],
+                expected_generation=int(args[3]) if len(args) == 4 else None,
+            )
             return True
         if action == "cancel":
             self._command_cancel(sender)
@@ -479,6 +491,16 @@ class EndKeepPlugin(Plugin):
                 self._log_maintenance(maintenance)
             return
 
+        if kind == "mutation":
+            summary = result.get("mutation")
+            if isinstance(summary, dict):
+                self.logger.info(
+                    f"Repository {summary.get('operation')} committed: snapshot={summary.get('snapshot')} "
+                    f"generation={summary.get('generation')} remaining={summary.get('remaining')} "
+                    f"base={summary.get('base')}"
+                )
+            return
+
         if kind == "verify":
             report = result.get("verify")
             if isinstance(report, dict):
@@ -710,6 +732,50 @@ class EndKeepPlugin(Plugin):
             return
         mode = "Deep" if deep else "Normal"
         sender.send_message(f"{mode} repository verification started.")
+
+    def _command_mutation(
+        self, sender: CommandSender, operation: str, snapshot: str, *, expected_generation: int | None
+    ) -> None:
+        repository = self._repository
+        capture = self._capture
+        if repository is None or capture is None:
+            sender.send_error_message("EndKeep repository service is unavailable.")
+            return
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Cannot change repository while capture is active or pending.")
+            return
+        if expected_generation is None:
+            try:
+                plan = repository.plan_mutation(operation, snapshot)
+            except Exception as exc:
+                sender.send_error_message(f"Cannot plan {operation}: {exc}")
+                return
+            removed = list(plan["removed"])
+            preview = ", ".join(removed[:4])
+            if len(removed) > 4:
+                preview += f" (+{len(removed) - 4} more)"
+            sender.send_message(
+                f"Preview: {operation} {snapshot}; generation={plan['generation']}; "
+                f"impact={plan['detail']}; removes={preview}; remains={plan['remaining']}."
+            )
+            sender.send_message(
+                f"To commit: /backup {operation} {snapshot} confirm {plan['generation']}"
+            )
+            return
+        try:
+            accepted = repository.start_mutation(
+                operation, snapshot, expected_generation=expected_generation
+            )
+        except Exception as exc:
+            sender.send_error_message(f"Failed to start {operation}: {exc}")
+            return
+        if not accepted:
+            sender.send_error_message("EndKeep repository is busy.")
+            return
+        sender.send_message(
+            f"{operation} accepted for {snapshot} (expected generation {expected_generation}). "
+            "Check /backup status and server logs for completion."
+        )
 
     def _command_cancel(self, sender: CommandSender) -> None:
         repository = self._repository

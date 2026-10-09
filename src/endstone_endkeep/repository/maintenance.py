@@ -4,13 +4,15 @@ import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from .gc import GcResult, collect_orphan_objects
 from .lock import RepositoryLock
 from .logicalize import Logicalizer, LogicalizeResult
 from .manifest import ManifestStore
+from .mutation import SnapshotMutator
 from .objects import ObjectStore
+from .reader import RepositoryReader
 from .progress import JobCancelled, ProgressTracker
 from .raw_queue import RawLimitResult, RawQueue
 from .retention import RetentionDecision, select_retention
@@ -18,7 +20,7 @@ from .rollover import Rollover, RolloverResult
 from .verify import RepositoryVerifier, VerifyReport
 
 MaintenanceMode = Literal["FULL", "LOGIC_ONLY"]
-JobKind = Literal["maintenance", "pre_capture", "verify", "cancelled"]
+JobKind = Literal["maintenance", "pre_capture", "verify", "mutation", "export", "cancelled"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ class RepositoryJobResult:
     raw_limits: RawLimitResult | None = None
     verify: VerifyReport | None = None
     cancelled_kind: str | None = None
+    mutation: dict[str, Any] | None = None
+    export: dict[str, Any] | None = None
 
 
 class RepositoryService:
@@ -121,6 +125,79 @@ class RepositoryService:
             return False
         stages = ("Objects", "States", "Finalize") if deep else ("Structure", "Finalize")
         return self._submit("verify", stages, self._run_verify, deep, mode="deep" if deep else "normal")
+
+    def plan_mutation(self, operation: str, snapshot: str) -> dict[str, Any]:
+        """Read-only preview of a destructive operation under the repository lock."""
+        with RepositoryLock(self.repo_root):
+            manifest = self.manifests.load_current()
+            if manifest is None:
+                raise ValueError("repository is empty")
+            index = RepositoryReader._index_of(manifest, snapshot)
+            if operation == "delete":
+                if len(manifest.chain) == 1:
+                    raise ValueError("cannot delete the only recovery point")
+                removed = [snapshot]
+                if index == 0:
+                    detail = f"replace BASE with {manifest.chain[1].snapshot}"
+                elif index == len(manifest.chain) - 1:
+                    detail = "remove tail DELTA"
+                else:
+                    detail = f"bridge DELTA {manifest.chain[index - 1].snapshot} -> {manifest.chain[index + 1].snapshot}"
+            elif operation == "rollover":
+                if index == 0:
+                    raise ValueError("selected snapshot is already the BASE")
+                removed = [node.snapshot for node in manifest.chain[:index]]
+                detail = f"promote {snapshot} to BASE"
+            else:
+                raise ValueError(f"unknown mutation: {operation}")
+            return {
+                "generation": manifest.generation,
+                "operation": operation,
+                "snapshot": snapshot,
+                "detail": detail,
+                "removed": removed,
+                "remaining": len(manifest.chain) - len(removed),
+            }
+
+    def start_mutation(self, operation: str, snapshot: str, expected_generation: int) -> bool:
+        if self._closed or self.busy:
+            return False
+        if operation not in ("delete", "rollover") or not snapshot or expected_generation < 0:
+            raise ValueError("invalid repository mutation request")
+        accepted = self._submit(
+            "mutation", ("Validate", "Rewrite", "Finalize"),
+            self._run_mutation, operation, snapshot, expected_generation, mode=operation,
+        )
+        # SnapshotMutator owns its atomic commit sequence; it has no cooperative checkpoints.
+        self.tracker.update(cancelable=False)
+        return accepted
+
+    def _run_mutation(self, operation: str, snapshot: str, expected_generation: int) -> RepositoryJobResult:
+        with RepositoryLock(self.repo_root):
+            self.tracker.update(stage="Validate", detail="checking repository generation", cancelable=False)
+            manifest = self.manifests.load_current()
+            if manifest is None:
+                raise ValueError("repository is empty")
+            if manifest.generation != expected_generation:
+                raise RuntimeError(
+                    f"repository changed since preview: generation {manifest.generation} != {expected_generation}"
+                )
+            self.tracker.update(stage="Rewrite", detail=f"{operation} {snapshot}", cancelable=False)
+            mutator = SnapshotMutator(self.manifests, self.objects)
+            updated = (
+                mutator.delete(manifest, snapshot)
+                if operation == "delete"
+                else mutator.rollover(manifest, snapshot)
+            )
+            self.tracker.update(stage="Finalize", detail="manifest committed", cancelable=False)
+            result = {
+                "operation": operation,
+                "snapshot": snapshot,
+                "generation": updated.generation,
+                "remaining": len(updated.chain),
+                "base": updated.chain[0].snapshot,
+            }
+        return RepositoryJobResult(kind="mutation", mutation=result)
 
     def request_cancel(self) -> bool:
         if self._closed or not self.busy:
