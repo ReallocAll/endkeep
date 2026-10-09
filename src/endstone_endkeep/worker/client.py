@@ -247,12 +247,14 @@ class RepositoryWorkerClient:
         return self._rpc({"command": "plan_mutation", "operation": operation, "snapshot": snapshot})["plan"]
 
     def start_mutation(self, operation: str, snapshot: str, *, expected_generation: int) -> bool:
-        response = self._rpc({
-            "command": "start_mutation",
-            "operation": operation,
-            "snapshot": snapshot,
-            "expected_generation": expected_generation,
-        })
+        response = self._rpc(
+            {
+                "command": "start_mutation",
+                "operation": operation,
+                "snapshot": snapshot,
+                "expected_generation": expected_generation,
+            }
+        )
         self._status = response["status"]
         return bool(response["accepted"])
 

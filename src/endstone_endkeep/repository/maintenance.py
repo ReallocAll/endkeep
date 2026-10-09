@@ -144,8 +144,7 @@ class RepositoryService:
                     detail = "remove tail DELTA"
                 else:
                     detail = (
-                        f"bridge DELTA {manifest.chain[index - 1].snapshot} "
-                        f"-> {manifest.chain[index + 1].snapshot}"
+                        f"bridge DELTA {manifest.chain[index - 1].snapshot} -> {manifest.chain[index + 1].snapshot}"
                     )
             elif operation == "rollover":
                 if index == 0:
@@ -169,8 +168,13 @@ class RepositoryService:
         if operation not in ("delete", "rollover") or not snapshot or expected_generation < 0:
             raise ValueError("invalid repository mutation request")
         accepted = self._submit(
-            "mutation", ("Validate", "Rewrite", "Finalize"),
-            self._run_mutation, operation, snapshot, expected_generation, mode=operation,
+            "mutation",
+            ("Validate", "Rewrite", "Finalize"),
+            self._run_mutation,
+            operation,
+            snapshot,
+            expected_generation,
+            mode=operation,
         )
         # SnapshotMutator owns its atomic commit sequence; it has no cooperative checkpoints.
         self.tracker.update(cancelable=False)
@@ -189,9 +193,7 @@ class RepositoryService:
             self.tracker.update(stage="Rewrite", detail=f"{operation} {snapshot}", cancelable=False)
             mutator = SnapshotMutator(self.manifests, self.objects)
             updated = (
-                mutator.delete(manifest, snapshot)
-                if operation == "delete"
-                else mutator.rollover(manifest, snapshot)
+                mutator.delete(manifest, snapshot) if operation == "delete" else mutator.rollover(manifest, snapshot)
             )
             self.tracker.update(stage="Finalize", detail="manifest committed", cancelable=False)
             result = {
@@ -227,16 +229,16 @@ class RepositoryService:
         if destination.exists():
             raise FileExistsError(f"export already exists: {destination}")
         self.tracker.update(
-            stage="Restore", snapshot=snapshot,
-            detail="verifying and rebuilding a separate world", cancelable=False,
+            stage="Restore",
+            snapshot=snapshot,
+            detail="verifying and rebuilding a separate world",
+            cancelable=False,
         )
         # command_restore locks the repository, verifies dependencies and restored state,
         # and deletes a partial export if recovery fails. No BDS API or active world is used.
         command_restore(self.repo_root, destination, snapshot, show_progress=False)
         self.tracker.update(stage="Finalize", detail="export complete", cancelable=False)
-        return RepositoryJobResult(
-            kind="export", export={"snapshot": snapshot, "destination": str(destination)}
-        )
+        return RepositoryJobResult(kind="export", export={"snapshot": snapshot, "destination": str(destination)})
 
     def request_cancel(self) -> bool:
         if self._closed or not self.busy:

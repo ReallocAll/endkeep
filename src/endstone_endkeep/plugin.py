@@ -111,7 +111,9 @@ class EndKeepPlugin(Plugin):
             if len(args) == 4 and (args[2] != "confirm" or not args[3].isdigit()):
                 return False
             self._command_mutation(
-                sender, action, args[1],
+                sender,
+                action,
+                args[1],
                 expected_generation=int(args[3]) if len(args) == 4 else None,
             )
             return True
@@ -773,14 +775,10 @@ class EndKeepPlugin(Plugin):
                 f"Preview: {operation} {snapshot}; generation={plan['generation']}; "
                 f"impact={plan['detail']}; removes={preview}; remains={plan['remaining']}."
             )
-            sender.send_message(
-                f"To commit: /backup {operation} {snapshot} confirm {plan['generation']}"
-            )
+            sender.send_message(f"To commit: /backup {operation} {snapshot} confirm {plan['generation']}")
             return
         try:
-            accepted = repository.start_mutation(
-                operation, snapshot, expected_generation=expected_generation
-            )
+            accepted = repository.start_mutation(operation, snapshot, expected_generation=expected_generation)
         except Exception as exc:
             sender.send_error_message(f"Failed to start {operation}: {exc}")
             return

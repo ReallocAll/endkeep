@@ -60,14 +60,17 @@ def test_worker_mutation_preview_and_generation_guard(tmp_path: Path) -> None:
         assert service.request_cancel() is False
 
         # A repository task cannot be accepted while another job is running.
-        assert app.handle(
-            {
-                "command": "start_mutation",
-                "operation": "delete",
-                "snapshot": S2,
-                "expected_generation": plan["generation"],
-            }
-        )["accepted"] is False
+        assert (
+            app.handle(
+                {
+                    "command": "start_mutation",
+                    "operation": "delete",
+                    "snapshot": S2,
+                    "expected_generation": plan["generation"],
+                }
+            )["accepted"]
+            is False
+        )
         outcome = _result(service)
         assert outcome.kind == "mutation"
         assert outcome.mutation["base"] == S2
