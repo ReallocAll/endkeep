@@ -136,7 +136,6 @@ def test_malformed_health_marker_fails_closed(tmp_path: Path) -> None:
     assert not RepositoryHealth(storage).failed
 
 
-
 def test_full_verification_failure_blocks_next_maintenance(tmp_path: Path, monkeypatch) -> None:
     storage = tmp_path / "backups"
     build_fixture(storage)
