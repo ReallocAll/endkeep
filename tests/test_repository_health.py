@@ -45,9 +45,7 @@ def test_failed_deep_verify_persists_across_worker_restart(tmp_path: Path, monke
     def fail_verify(self, *, deep=False, object_progress=None, state_progress=None):
         if deep:
             raise VerificationError("injected invalid state")
-        return original_verify(
-            self, deep=deep, object_progress=object_progress, state_progress=state_progress
-        )
+        return original_verify(self, deep=deep, object_progress=object_progress, state_progress=state_progress)
 
     service = _service(storage)
     try:
