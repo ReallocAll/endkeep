@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ..logical.amulet_reader import iter_visible_state, write_fresh_leveldb
@@ -44,37 +44,47 @@ def _resolve_node(manifest: RepositoryManifest, snapshot: str | None) -> Snapsho
     raise KeyError(f"snapshot not found: {snapshot}")
 
 
-def _new_progress_bar(
-    *,
-    total: int,
-    desc: str,
-    unit: str,
-    unit_scale: bool = False,
-):
-    try:
-        from tqdm import tqdm
-    except ImportError as exc:
-        raise RuntimeError("tqdm is required for offline progress display; install requirements-offline.txt") from exc
+class _ProgressBar:
+    """Low-noise standard-library progress output for wheel and standalone CLIs."""
 
-    return tqdm(
-        total=total,
-        desc=desc,
-        unit=unit,
-        unit_scale=unit_scale,
-        dynamic_ncols=True,
-        mininterval=0.2,
-        file=sys.stderr,
-        leave=True,
-    )
+    def __init__(self, *, total: int, desc: str, unit: str, unit_scale: bool = False) -> None:
+        self.total = total
+        self.desc = desc
+        self.unit = unit
+        self.unit_scale = unit_scale
+        self.n = 0
+        self._last_report = 0.0
+        self._reported = False
+
+    def update(self, amount: int) -> None:
+        self.n += amount
+        now = time.monotonic()
+        if now - self._last_report >= 1.0 or (self.total and self.n >= self.total):
+            self._report(now)
+
+    def _report(self, now: float) -> None:
+        count = f"{self.n:,}"
+        total = f"{self.total:,}"
+        if self.unit_scale and self.n >= 1000:
+            count = f"{self.n / 1000:.1f}k"
+            total = f"{self.total / 1000:.1f}k"
+        percent = f" ({self.n / self.total * 100:.1f}%)" if self.total else ""
+        print(f"{self.desc}: {count}/{total} {self.unit}{percent}", file=sys.stderr, flush=True)
+        self._last_report = now
+        self._reported = True
+
+    def close(self) -> None:
+        if not self._reported or self.n < self.total:
+            self._report(time.monotonic())
+
+
+def _new_progress_bar(*, total: int, desc: str, unit: str, unit_scale: bool = False) -> _ProgressBar:
+    return _ProgressBar(total=total, desc=desc, unit=unit, unit_scale=unit_scale)
 
 
 def _progress_write(message: str) -> None:
-    try:
-        from tqdm import tqdm
-    except ImportError:
-        print(message, file=sys.stderr)
-    else:
-        tqdm.write(message, file=sys.stderr)
+    print(message, file=sys.stderr)
+
 
 
 def _stage(index: int, total: int, message: str) -> None:
@@ -389,6 +399,9 @@ def command_restore(
     *,
     verbose: bool = False,
     show_progress: bool = False,
+    preflight: Callable[[SnapshotNode], None] | None = None,
+    space_guard: Callable[[], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> int:
     if destination.exists():
         raise FileExistsError(f"restore destination already exists: {destination}")
@@ -397,6 +410,8 @@ def command_restore(
     with RepositoryLock(repo):
         manifest = _load_manifest(manifests)
         node = _resolve_node(manifest, snapshot)
+        if preflight is not None:
+            preflight(node)
 
         if show_progress:
             print("EndKeep restore", file=sys.stderr)
@@ -431,6 +446,8 @@ def command_restore(
             if show_progress:
                 _stage_done()
 
+            if space_guard is not None:
+                space_guard()
             state = reader.iter_state(manifest, snapshot=node.snapshot)
             if show_progress:
                 print(file=sys.stderr)
@@ -446,11 +463,23 @@ def command_restore(
                 if show_progress
                 else None
             )
+            completed_records = 0
+
+            def on_written(amount: int) -> None:
+                nonlocal completed_records
+                completed_records += amount
+                if rebuild_bar is not None:
+                    rebuild_bar.update(amount)
+                if progress is not None:
+                    progress(completed_records, node.records)
+                if space_guard is not None:
+                    space_guard()
+
             try:
                 records, value_bytes = write_fresh_leveldb(
                     destination / "db",
                     state,
-                    progress=rebuild_bar.update if rebuild_bar is not None else None,
+                    progress=on_written if rebuild_bar is not None or progress is not None or space_guard is not None else None,
                 )
             finally:
                 if rebuild_bar is not None:
@@ -632,12 +661,25 @@ def _default_repository() -> Path:
     return server_root / "backups" / "repo"
 
 
-def _has_progress_display() -> bool:
-    try:
-        import tqdm  # noqa: F401
-    except ImportError:
-        return False
-    return True
+def install_server_launcher(data_folder: Path) -> Path:
+    """Expose the wheel CLI from Endstone's private plugin installation prefix."""
+    data_folder.mkdir(parents=True, exist_ok=True)
+    script = data_folder / "endkeep"
+    temporary = data_folder / ".endkeep.tmp"
+    site_root = Path(__file__).resolve().parents[2]
+    python = Path(sys.executable).resolve()
+    contents = (
+        f"#!{python}\\n"
+        "import sys\\n"
+        f"sys.path.insert(0, {str(site_root)!r})\\n"
+        "from endstone_endkeep.offline.cli import main\\n"
+        "raise SystemExit(main())\\n"
+    )
+    temporary.write_text(contents, encoding="utf-8")
+    temporary.chmod(0o755)
+    os.replace(temporary, script)
+    return script
+
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -653,7 +695,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return command_verify(
             repo,
             verbose=args.verbose,
-            show_progress=_has_progress_display(),
+            show_progress=True,
         )
     if args.command == "restore":
         return command_restore(
