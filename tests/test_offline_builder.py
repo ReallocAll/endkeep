@@ -61,9 +61,9 @@ def test_cli_discovers_configured_repository(tmp_path: Path, monkeypatch: pytest
     assert _default_repository() == tmp_path / "backups" / "repo"
     plugin_config = tmp_path / "plugins" / "endkeep" / "config.toml"
     plugin_config.parent.mkdir(parents=True)
-    plugin_config.write_text('[storage]\\npath = "custom-backups"\\n', encoding="utf-8")
+    plugin_config.write_text('[storage]\npath = "custom-backups"\n', encoding="utf-8")
     assert tomllib.loads(plugin_config.read_text(encoding="utf-8"))["storage"]["path"] == "custom-backups"
     assert _default_repository() == tmp_path / "custom-backups" / "repo"
-    plugin_config.write_text(f'[storage]\\npath = "{tmp_path / "absolute"}"\\n', encoding="utf-8")
+    plugin_config.write_text(f'[storage]\npath = "{tmp_path / "absolute"}"\n', encoding="utf-8")
     assert _default_repository() == tmp_path / "absolute" / "repo"
     assert build_parser().parse_args(["--repo", "manual/repo", "list"]).repo == Path("manual/repo")
