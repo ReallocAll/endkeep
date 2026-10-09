@@ -68,6 +68,11 @@ addopts = "-ra"
 [tool.hatch.version]
 source = "vcs"
 
+[tool.hatch.version.raw-options]
+# Ignore the separately published Amulet compatibility tag in this repository.
+# Only EndKeep vX.Y.Z tags should control the plugin version.
+git_describe_command = "git describe --dirty --tags --long --match 'v[0-9]*'"
+
 [tool.hatch.build.hooks.vcs]
 version-file = "src/endstone_endkeep/_version.py"
 
