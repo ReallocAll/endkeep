@@ -22,10 +22,10 @@ Download `endkeep-offline.py` and `requirements-offline.txt` from the same
 [EndKeep release](https://github.com/ReallocAll/endkeep/releases/latest).
 The standalone restore tool does not require a working BDS or Endstone installation.
 
-Stop the server before restoring. On a Linux host with Python 3.14, run:
+Stop the server before restoring. On Linux with Python 3.12–3.14, run:
 
 ```sh
-python3.14 -m venv .venv
+python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-offline.txt
 
 REPO=/path/to/backups/repo
@@ -34,6 +34,11 @@ REPO=/path/to/backups/repo
 .venv/bin/python endkeep-offline.py --repo "$REPO" verify
 .venv/bin/python endkeep-offline.py --repo "$REPO" restore /path/to/restored-world --snapshot SNAPSHOT_ID
 ```
+
+On Windows, create a virtual environment with `py -3.14 -m venv .venv`
+and use `.venv\\Scripts\\python` instead of `.venv/bin/python` in the
+commands above. Python 3.12/3.13 uses the matching Amulet-LevelDB
+compatibility Wheel from GitHub Releases on either platform.
 
 Replace `REPO` and `SNAPSHOT_ID` with your paths and recovery point ID.
 Omit `--snapshot SNAPSHOT_ID` to restore the latest recovery point.

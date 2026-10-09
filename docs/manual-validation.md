@@ -3,11 +3,13 @@
 These checks complement automated tests. Perform them with a release candidate
 on a test world before publishing a version.
 
-**Existing live-server validation:** Ubuntu 26.04 LTS x86-64, Python 3.14,
-Endstone 0.11. The cross-platform test matrix covers Python 3.12/3.13/3.14 on
-Linux x86-64 and Windows x64, but CI is not a substitute for running a real BDS
-instance. Until the steps below succeed on disposable Windows worlds, Windows
-support is a development target rather than a production guarantee.
+**Automated validation:** Python 3.12/3.13/3.14 on Linux x86-64 and Windows
+x64; [six-combination CI](https://github.com/ReallocAll/endkeep/actions/runs/37976573011).
+Real BDS 1.26.52.3 / Endstone 0.11.13 with Python 3.14 passed on both platforms
+in [bds-test-lab](https://github.com/ReallocAll/bds-test-lab/actions/runs/37977425842):
+two online snapshots, maintenance, deep verify, export, graceful BDS stop,
+explicit authenticated worker shutdown and offline restore. The tests do
+not establish equivalent NTFS/POSIX sudden-power-loss guarantees.
 
 ## Installation and backup
 
@@ -35,13 +37,14 @@ Keep these tests on disposable worlds or independent copies of backup data.
 
 ## Cross-platform release acceptance (Python 3.12–3.14)
 
-Complete the following for **each** Linux and Windows platform family. Do not
-publish a compatibility claim merely because the six GitHub Actions jobs passed.
+The Python 3.14 smoke scenarios were completed on disposable Linux and Windows
+BDS worlds. Repeat the following when validating additional server versions,
+large repositories or production configurations.
 
 1. Test the exact published plugin Wheel and a clean installation on Endstone
    0.11 for Python 3.12/3.13/3.14. The 3.12/3.13 compatibility Wheels of
    Amulet-LevelDB must be publicly retrievable and their checksums verified;
-   CI artifacts expire and are not a production dependency source.
+   EndKeep uses the fixed compatibility Release rather than expiring CI artifacts.
 2. With an isolated BDS world, exercise `save hold`, `save query`, `save resume`,
    and two snapshots containing LevelDB keys with binary data. Verify no tick
    stall or held-save state persists after a failed capture.
@@ -58,5 +61,11 @@ publish a compatibility claim merely because the six GitHub Actions jobs passed.
    Windows' CRT does not provide POSIX directory-fsync behavior; passing unit
    tests is not evidence of identical power-failure durability guarantees.
 
-Only then update README installation claims and enable normal end-user
-distribution on the newly supported platform/Python versions.
+The repository worker intentionally stays alive across plugin reloads.
+The headless lab explicitly shuts down the authenticated worker after
+stopping BDS so the process tree is clean; this is separate from checking
+whether BDS itself stops normally.
+
+Sudden power failure cannot be simulated by clean shutdown. The Windows
+NTFS directory-metadata durability guarantees remain different from POSIX
+directory fsync; test these separately before making stronger claims.

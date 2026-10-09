@@ -8,19 +8,20 @@ without storing a complete world copy each time, and lets you restore an earlier
 
 ## Installation
 
-**Current public releases** require Linux x86-64, Python 3.14 and Endstone 0.11;
-tested on Ubuntu 26.04 LTS. Development CI for the next version also covers
-Linux/Windows x86-64 with Python 3.12–3.14. For Python 3.12/3.13, the plugin automatically downloads matching, pinned,
-unofficial Amulet-LevelDB compatibility Wheels from our
-[compatibility Release](https://github.com/ReallocAll/endkeep/releases/tag/amulet-leveldb-3.0.7a0-compat-cp312-cp313).
-These builds are for x86-64 Linux and Windows only. Python 3.14 still uses
-upstream PyPI. Production rollout still requires live BDS validation.
+Requires **Linux or Windows x86-64**, **Python 3.12–3.14** and **Endstone 0.11**.
+Verified on BDS 1.26.52.3 / Endstone 0.11.13 on Linux and Windows.
+Python 3.12/3.13 automatically install SHA-256-pinned, unofficial
+Amulet-LevelDB compatibility Wheels from the
+[compatibility Release](https://github.com/ReallocAll/endkeep/releases/tag/amulet-leveldb-3.0.7a0-compat-cp312-cp313); Python 3.14
+uses the upstream PyPI package. GitHub Releases and PyPI must be reachable
+for the initial installation.
 
 1. Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
 2. Place it in your server's `plugins/` directory.
 3. Restart the server. Endstone installs the required Python packages automatically.
 
-The server needs internet access and compatible dependency packages for the initial installation.
+On Windows, sudden-power-loss durability may differ from POSIX directory fsync.
+Keep an independent off-server copy of backups.
 See [Using EndKeep](docs/using-endkeep.md) for details.
 
 ## Quick start
