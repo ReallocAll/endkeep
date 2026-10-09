@@ -282,6 +282,12 @@ class ObjectStore:
                 raise
             return
         try:
-            os.fsync(fd)
+            try:
+                os.fsync(fd)
+            except OSError:
+                # Windows CRT descriptors do not support directory fsync.
+                # Data-file fsync and atomic rename remain mandatory.
+                if os.name == "posix":
+                    raise
         finally:
             os.close(fd)

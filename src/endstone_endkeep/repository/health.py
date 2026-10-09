@@ -67,8 +67,17 @@ class RepositoryHealth:
         self.reason = None
 
     def _fsync_root(self) -> None:
-        fd = os.open(self.storage_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
-            os.fsync(fd)
+            fd = os.open(self.storage_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except OSError:
+            if os.name == "posix":
+                raise
+            return
+        try:
+            try:
+                os.fsync(fd)
+            except OSError:
+                if os.name == "posix":
+                    raise
         finally:
             os.close(fd)

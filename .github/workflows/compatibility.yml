@@ -1,12 +1,13 @@
 name: Python and Windows compatibility
 
 on:
-  push:
-    branches: [feat/python312-windows-compat]
-    paths: [.github/workflows/compatibility.yml, .github/scripts/amulet_leveldb_smoke.py, pyproject.toml, 'src/**', 'tests/**', 'tools/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: compatibility-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
