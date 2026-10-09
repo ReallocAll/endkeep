@@ -131,7 +131,9 @@ class RawSnapshotStore:
             directories.append(current_path)
             for filename in filenames:
                 path = current_path / filename
-                fd = os.open(path, os.O_RDONLY)
+                # Open with write access on Windows so os.fsync can commit data.
+                flags = os.O_RDWR if os.name == "nt" else os.O_RDONLY
+                fd = os.open(path, flags)
                 try:
                     os.fsync(fd)
                 finally:

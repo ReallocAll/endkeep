@@ -550,7 +550,10 @@ def _fsync_tree(root: Path) -> None:
         current_path = Path(current)
         directories.append(current_path)
         for filename in filenames:
-            fd = os.open(current_path / filename, os.O_RDONLY)
+            # Windows' CRT _commit needs a writable handle to flush file data.
+            # Do not skip fsync: failed flushes must abort recovery.
+            flags = os.O_RDWR if os.name == "nt" else os.O_RDONLY
+            fd = os.open(current_path / filename, flags)
             try:
                 os.fsync(fd)
             finally:
