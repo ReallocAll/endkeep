@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, override
 
@@ -8,12 +9,18 @@ from endstone.command import Command, CommandSender
 from endstone.plugin import Plugin
 
 from .config import ConfigError, EndKeepConfig, reconcile_config_file
-from .confirmation import MutationConfirmations
 from .coordinator import CaptureCoordinator
 from .offline.cli import install_server_launcher
 from .scheduler import EndKeepScheduler, ScheduleEvent, SchedulerState
 from .staging.raw import RawSnapshotStore
 from .worker.client import RepositoryWorkerClient, WorkerError, WorkerRequestIndeterminate, WorkerTimeout
+
+
+@dataclass(frozen=True)
+class PendingMutation:
+    operation: str
+    snapshot: str
+    generation: int
 
 
 class EndKeepPlugin(Plugin):
@@ -57,7 +64,7 @@ class EndKeepPlugin(Plugin):
         self._pending_capture_required_bytes = 0
         self._pending_result_ack: int | None = None
         self._worker_start_retry_ticks = 0
-        self._confirmations: MutationConfirmations | None = None
+        self._pending_mutations: dict[str, PendingMutation] = {}
 
     @override
     def on_enable(self) -> None:
@@ -187,9 +194,7 @@ class EndKeepPlugin(Plugin):
             self._dispatch_schedule_event,
         )
 
-        # New runtime invalidates all previews from any previous plugin/server
-        # lifetime. Only an inert restart marker is persisted for diagnostics.
-        self._confirmations = MutationConfirmations(Path(self.data_folder))
+        self._pending_mutations.clear()
         self._runtime_config = config
         self._storage_root = storage_root
         self._repository = repository
@@ -225,7 +230,7 @@ class EndKeepPlugin(Plugin):
         repository = self._repository
         self._capture = None
         self._repository = None
-        self._confirmations = None
+        self._pending_mutations.clear()
         self._clock = None
         self._pending_capture = False
         self._pending_capture_scheduled_for = None
@@ -770,8 +775,7 @@ class EndKeepPlugin(Plugin):
     def _command_mutation(self, sender: CommandSender, operation: str, snapshot: str) -> None:
         repository = self._repository
         capture = self._capture
-        confirmations = self._confirmations
-        if repository is None or capture is None or confirmations is None:
+        if repository is None or capture is None:
             sender.send_error_message("EndKeep repository service is unavailable.")
             return
         if capture.busy or self._pending_capture:
@@ -781,9 +785,9 @@ class EndKeepPlugin(Plugin):
         key = self._confirmation_sender_key(sender)
         try:
             # A fresh preview replaces the previous choice even if planning fails.
-            confirmations.forget(key)
+            self._pending_mutations.pop(key, None)
             plan = repository.plan_mutation(operation, snapshot)
-            confirmations.remember(key, operation, snapshot, int(plan["generation"]))
+            self._pending_mutations[key] = PendingMutation(operation, snapshot, int(plan["generation"]))
         except Exception as exc:
             sender.send_error_message(f"Cannot plan {operation}: {exc}")
             return
@@ -799,23 +803,13 @@ class EndKeepPlugin(Plugin):
         sender.send_message("To commit: /backup confirm (no time limit; invalidated by repository changes or restart).")
 
     def _command_confirm(self, sender: CommandSender) -> None:
-        confirmations = self._confirmations
-        if confirmations is None:
-            sender.send_error_message("EndKeep repository service is unavailable; preview again after startup.")
-            return
         key = self._confirmation_sender_key(sender)
-        preview = confirmations.get(key)
+        preview = self._pending_mutations.get(key)
         if preview is None:
-            if confirmations.was_restarted(key):
-                sender.send_error_message(
-                    "Confirmation invalidated: EndKeep restarted or reloaded after your preview. "
-                    "Run /backup delete or /backup rollover again to preview."
-                )
-            else:
-                sender.send_error_message(
-                    "No pending preview for this sender. Run /backup delete <snapshot> or "
-                    "/backup rollover <snapshot> first."
-                )
+            sender.send_error_message(
+                "No pending preview for this sender (a restart/reload also clears previews). "
+                "Run /backup delete <snapshot> or /backup rollover <snapshot> first."
+            )
             return
 
         repository = self._repository
@@ -830,7 +824,7 @@ class EndKeepPlugin(Plugin):
             sender.send_error_message(f"Cannot check repository generation; retry /backup confirm: {exc}")
             return
         if current != preview.generation:
-            confirmations.forget(key)
+            self._pending_mutations.pop(key, None)
             sender.send_error_message(
                 f"Confirmation invalidated: repository changed since preview "
                 f"(generation {preview.generation} -> {current}). "
@@ -849,7 +843,7 @@ class EndKeepPlugin(Plugin):
         except WorkerRequestIndeterminate as exc:
             # The worker may already be modifying the repository. Never allow a
             # second confirm to submit a fresh request without another preview.
-            confirmations.forget(key)
+            self._pending_mutations.pop(key, None)
             sender.send_error_message(f"{exc} Re-preview before another attempt.")
             return
         except Exception as exc:
@@ -859,7 +853,7 @@ class EndKeepPlugin(Plugin):
             sender.send_error_message("EndKeep repository is busy; retry /backup confirm when idle.")
             return
 
-        confirmations.forget(key)
+        self._pending_mutations.pop(key, None)
         sender.send_message(
             f"{preview.operation} accepted for {preview.snapshot} (generation {preview.generation}). "
             "Check /backup status and server logs for completion."
