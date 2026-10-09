@@ -166,6 +166,12 @@ class EndKeepPlugin(Plugin):
             "verify_mode": config.verify.mode,
         }
         recovery = repository.configure(settings)
+        health = repository.status.get("health", {})
+        if health.get("status") == "FAILED":
+            self.logger.critical(
+                f"REPOSITORY FAILED: {health.get('reason')}; destructive maintenance is blocked "
+                "until /backup verify deep succeeds."
+            )
 
         min_free_bytes = config.storage.min_free_space_gib * 1024**3
 
@@ -331,6 +337,8 @@ class EndKeepPlugin(Plugin):
         capture = self._capture
         if repository is None or event.maintenance_mode is None:
             return False
+        if repository.status.get("health", {}).get("status") == "FAILED":
+            return False
         if (capture is not None and capture.busy) or self._pending_capture:
             return False
 
@@ -376,6 +384,8 @@ class EndKeepPlugin(Plugin):
         repository = self._repository
         capture = self._capture
         if clock is None or repository is None:
+            return
+        if repository.status.get("health", {}).get("status") == "FAILED":
             return
         if (
             repository.busy
@@ -592,14 +602,19 @@ class EndKeepPlugin(Plugin):
         capture_status = capture.status()
         repo = worker_status.get("repository", {})
         worker = worker_status.get("worker", {})
+        health = worker_status.get("health", {})
         job = worker_status.get("job", {})
         pending = self._clock.pending_maintenance if self._clock is not None else None
 
         sender.send_message(
             f"EndKeep: enabled={config.enabled} capture={capture_status.state} held={capture_status.held} "
-            f"repository={self._repository_label(job)} raw_pending={repo.get('raw_pending')} "
+            f"repository={self._repository_label(job)} health={health.get('status', 'UNKNOWN')} "
+            f"raw_pending={repo.get('raw_pending')} "
             f"generation={repo.get('generation')} snapshots={repo.get('snapshots')} storage={self._storage_root}"
         )
+
+        if health.get("status") == "FAILED":
+            sender.send_error_message(f"REPOSITORY FAILED: {health.get('reason')}")
 
         stages = tuple(job.get("stages") or ())
         state = job.get("state")
