@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - List all retained recovery points and replace starter-template contributor/issue instructions.
+- Reject new captures while preserving pending raw recovery points after logicalization failures.
+- Refuse to rewrite existing version tags during release automation.
+- Correct live validation to Ubuntu 26.04 LTS and disclose third-party licensing and platform prerequisites.
 
 ### Documentation
 - Document configuration safety limits, platform validation, recovery format compatibility and security reporting.
