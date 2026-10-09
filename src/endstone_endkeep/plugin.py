@@ -796,10 +796,7 @@ class EndKeepPlugin(Plugin):
             f"Preview: {operation} {snapshot}; generation={plan['generation']}; "
             f"impact={plan['detail']}; removes={preview}; remains={plan['remaining']}."
         )
-        sender.send_message(
-            "To commit: /backup confirm (no time limit; "
-            "invalidated by repository changes or restart)."
-        )
+        sender.send_message("To commit: /backup confirm (no time limit; invalidated by repository changes or restart).")
 
     def _command_confirm(self, sender: CommandSender) -> None:
         confirmations = self._confirmations
