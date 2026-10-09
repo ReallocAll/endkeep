@@ -150,7 +150,7 @@ class RepositoryWorkerClient:
     def _load_runtime(path: Path) -> RuntimeInfo | None:
         try:
             return RuntimeInfo.load(path)
-        except FileNotFoundError, OSError, ValueError, KeyError:
+        except (FileNotFoundError, OSError, ValueError, KeyError):
             return None
 
     @staticmethod
