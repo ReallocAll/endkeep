@@ -87,7 +87,7 @@ jobs:
           from zipfile import ZipFile
           import os
           target_tag = os.environ['TARGET_TAG']
-          wheels = list(Path('dist').glob('amulet_leveldb-3.0.7a0-*.whl'))
+          wheels = list(Path('dist').glob('amulet_leveldb-3.0.7a0*-*.whl'))
           assert len(wheels) == 1, f'expected exactly one 3.0.7a0 wheel, got {wheels}'
           path = wheels[0]
           assert f'-{target_tag}-{target_tag}-manylinux_' in path.name, path.name

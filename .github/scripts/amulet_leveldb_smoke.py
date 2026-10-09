@@ -8,7 +8,7 @@ from amulet.leveldb import LevelDB
 
 
 def main() -> None:
-    assert version("amulet-leveldb") == "3.0.7a0"
+    assert version("amulet-leveldb").split("+", 1)[0] == "3.0.7a0"
     expected = {b"\x00": b"alpha", b"\x02": b"bravo", b"\xff": b"\x00\xff"}
     with TemporaryDirectory(prefix="amulet-backport-") as tmp:
         location = Path(tmp) / "db"
