@@ -77,7 +77,9 @@ jobs:
           /tmp/endkeep-offline-smoke/bin/python -m pip install -r requirements-offline.txt
           /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --help
           /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo list
-          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify
+          /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo verify 2>/tmp/endkeep-verify-progress.log
+          grep -q "Verifying objects:" /tmp/endkeep-verify-progress.log
+          grep -q "100%" /tmp/endkeep-verify-progress.log
           /tmp/endkeep-offline-smoke/bin/python dist/endkeep-offline.py --repo /tmp/endkeep-fixture/repo restore /tmp/endkeep-restored
           test -f /tmp/endkeep-restored/level.dat
           test -d /tmp/endkeep-restored/db

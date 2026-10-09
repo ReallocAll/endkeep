@@ -49,6 +49,7 @@ class WorkerApplication:
         self._next_result_id = 1
         self._last_acked_result_id = 0
         self._active_request_id: str | None = None
+        self._management_requests: dict[str, tuple[str, ...]] = {}
         self.last_contact = time.monotonic()
         self.shutdown_requested = False
         self._lock = threading.RLock()
@@ -81,6 +82,16 @@ class WorkerApplication:
                 if accepted:
                     self._active_request_id = request_id
                 return {"ok": True, "accepted": accepted, "status": self._status_locked()}
+            if command == "plan_mutation":
+                if not self._ready_for_new_job_locked():
+                    return {"ok": False, "error": "repository worker is busy"}
+                service = self._require_service()
+                return {
+                    "ok": True,
+                    "plan": service.plan_mutation(str(request.get("operation")), str(request.get("snapshot"))),
+                }
+            if command in ("start_mutation", "start_export"):
+                return self._start_managed_locked(command, request)
             if command == "start_pre_capture":
                 if not self._ready_for_new_job_locked():
                     return {"ok": True, "accepted": False, "status": self._status_locked()}
@@ -147,6 +158,43 @@ class WorkerApplication:
                 self.shutdown_requested = True
                 return {"ok": True, "status": self._status_locked()}
             return {"ok": False, "error": f"unknown worker command: {command!r}"}
+
+    def _start_managed_locked(self, command: str, request: dict[str, Any]) -> dict[str, Any]:
+        request_id = request.get("request_id")
+        if (
+            not isinstance(request_id, str)
+            or len(request_id) != 32
+            or any(char not in "0123456789abcdef" for char in request_id)
+        ):
+            return {"ok": False, "error": "management request_id must be a UUID hex string"}
+
+        snapshot = str(request.get("snapshot"))
+        if command == "start_mutation":
+            operation = str(request.get("operation"))
+            expected_generation = int(request.get("expected_generation"))
+            identity = (command, operation, snapshot, str(expected_generation))
+        else:
+            identity = (command, snapshot)
+
+        previous = self._management_requests.get(request_id)
+        if previous is not None:
+            if previous != identity:
+                return {"ok": False, "error": "management request_id reused with different arguments"}
+            return {"ok": True, "accepted": True, "status": self._status_locked()}
+        if not self._ready_for_new_job_locked():
+            return {"ok": True, "accepted": False, "status": self._status_locked()}
+
+        service = self._require_service()
+        if command == "start_mutation":
+            accepted = service.start_mutation(operation, snapshot, expected_generation)
+        else:
+            accepted = service.start_export(snapshot)
+        if accepted:
+            self._active_request_id = request_id
+            self._management_requests[request_id] = identity
+            if len(self._management_requests) > 256:
+                self._management_requests.pop(next(iter(self._management_requests)))
+        return {"ok": True, "accepted": accepted, "status": self._status_locked()}
 
     def _configure_locked(self, raw_settings: Any) -> dict[str, Any]:
         if not isinstance(raw_settings, dict):

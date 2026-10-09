@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, override
 
@@ -11,7 +12,14 @@ from .config import ConfigError, EndKeepConfig, reconcile_config_file
 from .coordinator import CaptureCoordinator
 from .scheduler import EndKeepScheduler, ScheduleEvent, SchedulerState
 from .staging.raw import RawSnapshotStore
-from .worker.client import RepositoryWorkerClient, WorkerError, WorkerTimeout
+from .worker.client import RepositoryWorkerClient, WorkerError, WorkerRequestIndeterminate, WorkerTimeout
+
+
+@dataclass(frozen=True)
+class PendingMutation:
+    operation: str
+    snapshot: str
+    generation: int
 
 
 class EndKeepPlugin(Plugin):
@@ -24,9 +32,11 @@ class EndKeepPlugin(Plugin):
         "backup": {
             "description": "Manage EndKeep backups",
             "usages": [
-                "/backup (status|create|list|cancel|reload)<action: EndKeepBackupAction>",
+                "/backup (status|create|list|cancel|reload|confirm)<action: EndKeepBackupAction>",
                 "/backup (verify)<action: EndKeepVerifyAction> (deep)[mode: EndKeepVerifyMode]",
                 "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
+                "/backup (delete|rollover)<action: EndKeepMutationAction> <snapshot: str>",
+                "/backup (export)<action: EndKeepExportAction> <snapshot: str>",
             ],
             "permissions": ["endkeep.admin"],
         }
@@ -53,6 +63,7 @@ class EndKeepPlugin(Plugin):
         self._pending_capture_required_bytes = 0
         self._pending_result_ack: int | None = None
         self._worker_start_retry_ticks = 0
+        self._pending_mutations: dict[str, PendingMutation] = {}
 
     @override
     def on_enable(self) -> None:
@@ -101,6 +112,21 @@ class EndKeepPlugin(Plugin):
             if len(args) > 2 or (len(args) == 2 and not deep):
                 return False
             self._command_verify(sender, deep=deep)
+            return True
+        if action in ("delete", "rollover"):
+            if len(args) != 2:
+                return False
+            self._command_mutation(sender, action, args[1])
+            return True
+        if action == "confirm":
+            if len(args) != 1:
+                return False
+            self._command_confirm(sender)
+            return True
+        if action == "export":
+            if len(args) != 2:
+                return False
+            self._command_export(sender, args[1])
             return True
         if action == "cancel":
             self._command_cancel(sender)
@@ -161,6 +187,7 @@ class EndKeepPlugin(Plugin):
             self._dispatch_schedule_event,
         )
 
+        self._pending_mutations.clear()
         self._runtime_config = config
         self._storage_root = storage_root
         self._repository = repository
@@ -196,6 +223,7 @@ class EndKeepPlugin(Plugin):
         repository = self._repository
         self._capture = None
         self._repository = None
+        self._pending_mutations.clear()
         self._clock = None
         self._pending_capture = False
         self._pending_capture_scheduled_for = None
@@ -479,6 +507,25 @@ class EndKeepPlugin(Plugin):
                 self._log_maintenance(maintenance)
             return
 
+        if kind == "mutation":
+            summary = result.get("mutation")
+            if isinstance(summary, dict):
+                self.logger.info(
+                    f"Repository {summary.get('operation')} committed: snapshot={summary.get('snapshot')} "
+                    f"generation={summary.get('generation')} remaining={summary.get('remaining')} "
+                    f"base={summary.get('base')}"
+                )
+            return
+
+        if kind == "export":
+            summary = result.get("export")
+            if isinstance(summary, dict):
+                self.logger.info(
+                    f"Repository export complete: snapshot={summary.get('snapshot')} "
+                    f"destination={summary.get('destination')}"
+                )
+            return
+
         if kind == "verify":
             report = result.get("verify")
             if isinstance(report, dict):
@@ -710,6 +757,125 @@ class EndKeepPlugin(Plugin):
             return
         mode = "Deep" if deep else "Normal"
         sender.send_message(f"{mode} repository verification started.")
+
+    @staticmethod
+    def _confirmation_sender_key(sender: CommandSender) -> str:
+        # A new Python wrapper may be constructed for each invocation; use a
+        # stable name rather than object identity. Include sender type to keep
+        # console and player namespaces separate.
+        return f"{type(sender).__name__}:{sender.name}"
+
+    def _command_mutation(self, sender: CommandSender, operation: str, snapshot: str) -> None:
+        repository = self._repository
+        capture = self._capture
+        if repository is None or capture is None:
+            sender.send_error_message("EndKeep repository service is unavailable.")
+            return
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Cannot preview repository changes while capture is active or pending.")
+            return
+
+        key = self._confirmation_sender_key(sender)
+        try:
+            # A fresh preview replaces the previous choice even if planning fails.
+            self._pending_mutations.pop(key, None)
+            plan = repository.plan_mutation(operation, snapshot)
+            self._pending_mutations[key] = PendingMutation(operation, snapshot, int(plan["generation"]))
+        except Exception as exc:
+            sender.send_error_message(f"Cannot plan {operation}: {exc}")
+            return
+
+        removed = list(plan["removed"])
+        preview = ", ".join(removed[:4])
+        if len(removed) > 4:
+            preview += f" (+{len(removed) - 4} more)"
+        sender.send_message(
+            f"Preview: {operation} {snapshot}; generation={plan['generation']}; "
+            f"impact={plan['detail']}; removes={preview}; remains={plan['remaining']}."
+        )
+        sender.send_message("To commit: /backup confirm (no time limit; invalidated by repository changes or restart).")
+
+    def _command_confirm(self, sender: CommandSender) -> None:
+        key = self._confirmation_sender_key(sender)
+        preview = self._pending_mutations.get(key)
+        if preview is None:
+            sender.send_error_message(
+                "No pending preview for this sender (a restart/reload also clears previews). "
+                "Run /backup delete <snapshot> or /backup rollover <snapshot> first."
+            )
+            return
+
+        repository = self._repository
+        capture = self._capture
+        if repository is None or capture is None:
+            sender.send_error_message("EndKeep repository service is unavailable.")
+            return
+
+        try:
+            current = repository.list_snapshots()["generation"]
+        except Exception as exc:
+            sender.send_error_message(f"Cannot check repository generation; retry /backup confirm: {exc}")
+            return
+        if current != preview.generation:
+            self._pending_mutations.pop(key, None)
+            sender.send_error_message(
+                f"Confirmation invalidated: repository changed since preview "
+                f"(generation {preview.generation} -> {current}). "
+                f"Run /backup {preview.operation} {preview.snapshot} again to preview."
+            )
+            return
+
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Capture is active or pending; retry /backup confirm when idle.")
+            return
+
+        try:
+            accepted = repository.start_mutation(
+                preview.operation, preview.snapshot, expected_generation=preview.generation
+            )
+        except WorkerRequestIndeterminate as exc:
+            # The worker may already be modifying the repository. Never allow a
+            # second confirm to submit a fresh request without another preview.
+            self._pending_mutations.pop(key, None)
+            sender.send_error_message(f"{exc} Re-preview before another attempt.")
+            return
+        except Exception as exc:
+            sender.send_error_message(f"Failed to start {preview.operation}: {exc}")
+            return
+        if not accepted:
+            sender.send_error_message("EndKeep repository is busy; retry /backup confirm when idle.")
+            return
+
+        self._pending_mutations.pop(key, None)
+        sender.send_message(
+            f"{preview.operation} accepted for {preview.snapshot} (generation {preview.generation}). "
+            "Check /backup status and server logs for completion."
+        )
+
+    def _command_export(self, sender: CommandSender, snapshot: str) -> None:
+        repository = self._repository
+        capture = self._capture
+        if repository is None or capture is None:
+            sender.send_error_message("EndKeep repository service is unavailable.")
+            return
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Cannot export while capture is active or pending.")
+            return
+        try:
+            accepted = repository.start_export(snapshot)
+        except WorkerRequestIndeterminate as exc:
+            sender.send_error_message(str(exc))
+            return
+        except Exception as exc:
+            sender.send_error_message(f"Failed to start export: {exc}")
+            return
+        if not accepted:
+            sender.send_error_message("EndKeep repository is busy.")
+            return
+        sender.send_message(
+            f"Export accepted: {snapshot}. Output: {self._storage_root / 'exports' / snapshot}. "
+            "Use /backup status to monitor; check server logs for completion."
+        )
 
     def _command_cancel(self, sender: CommandSender) -> None:
         repository = self._repository

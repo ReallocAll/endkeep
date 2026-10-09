@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,14 @@ class WorkerError(RuntimeError):
 
 class WorkerTimeout(WorkerError):
     """Raised when a bounded worker RPC does not answer before its deadline."""
+
+
+class WorkerRejected(WorkerError):
+    """The repository worker explicitly rejected the request."""
+
+
+class WorkerRequestIndeterminate(WorkerError):
+    """A management request may have been accepted despite a lost response."""
 
 
 class RepositoryWorkerClient:
@@ -183,7 +192,7 @@ class RepositoryWorkerClient:
             raise WorkerError(f"repository worker RPC failed: {exc}") from exc
 
         if not response.get("ok", False):
-            raise WorkerError(str(response.get("error", "repository worker rejected the request")))
+            raise WorkerRejected(str(response.get("error", "repository worker rejected the request")))
         return response
 
     @property
@@ -242,6 +251,43 @@ class RepositoryWorkerClient:
         response = self._rpc(request, timeout=timeout)
         self._status = response["status"]
         return bool(response["accepted"])
+
+    def plan_mutation(self, operation: str, snapshot: str) -> dict[str, Any]:
+        return self._rpc({"command": "plan_mutation", "operation": operation, "snapshot": snapshot})["plan"]
+
+    def _start_management(self, payload: dict[str, Any]) -> bool:
+        # On timeout, retry only the same immutable request ID. The worker
+        # deduplicates accepted requests even after their result was ACKed.
+        request_id = uuid.uuid4().hex
+        request = {**payload, "request_id": request_id}
+        for attempt in range(2):
+            try:
+                response = self._rpc(request)
+            except WorkerRejected:
+                raise
+            except WorkerError as exc:
+                if attempt == 0:
+                    continue
+                raise WorkerRequestIndeterminate(
+                    f"Management request {request_id} has an unknown outcome. "
+                    "Check /backup status and server logs before issuing a new request."
+                ) from exc
+            self._status = response["status"]
+            return bool(response["accepted"])
+        raise AssertionError("unreachable management retry loop")
+
+    def start_mutation(self, operation: str, snapshot: str, *, expected_generation: int) -> bool:
+        return self._start_management(
+            {
+                "command": "start_mutation",
+                "operation": operation,
+                "snapshot": snapshot,
+                "expected_generation": expected_generation,
+            }
+        )
+
+    def start_export(self, snapshot: str) -> bool:
+        return self._start_management({"command": "start_export", "snapshot": snapshot})
 
     def start_pre_capture(
         self,

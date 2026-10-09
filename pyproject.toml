@@ -39,6 +39,9 @@ Documentation = "https://github.com/ReallocAll/endkeep#readme"
 Changelog = "https://github.com/ReallocAll/endkeep/blob/main/CHANGELOG.md"
 Issues = "https://github.com/ReallocAll/endkeep/issues"
 
+[project.scripts]
+endkeep = "endstone_endkeep.offline.cli:main"
+
 [project.entry-points."endstone"]
 endkeep = "endstone_endkeep:EndKeepPlugin"
 
