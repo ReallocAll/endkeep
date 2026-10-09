@@ -1,0 +1,43 @@
+name: Refresh EndKeep compatibility lock (one time)
+
+on:
+  push:
+    branches: [ci/refresh-endkeep-uvlock-once]
+    paths: [.github/workflows/refresh-uv-lock-once.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/python312-windows-compat
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.14'
+      - name: Refresh and validate universal cross-platform lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock
+          uv sync --locked --python 3.14 --extra dev
+          git diff --check
+          git diff --stat uv.lock
+      - name: Commit only the lockfile to the PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            echo "Lockfile already matches; no update."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add uv.lock
+          git commit -m 'chore(deps): refresh universal lock for Python 3.12–3.14 backports'
+          git push origin HEAD:refs/heads/feat/python312-windows-compat
