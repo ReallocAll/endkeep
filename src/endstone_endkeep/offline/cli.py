@@ -651,27 +651,6 @@ def _default_repository() -> Path:
     return server_root / "backups" / "repo"
 
 
-def install_server_launcher(data_folder: Path) -> Path:
-    """Expose the wheel CLI from Endstone's private plugin installation prefix."""
-    data_folder.mkdir(parents=True, exist_ok=True)
-    script = data_folder / "endkeep"
-    temporary = data_folder / ".endkeep.tmp"
-    site_root = Path(__file__).resolve().parents[2]
-    # Keep the virtualenv launcher path; resolving symlinks can escape its site-packages.
-    python = sys.executable
-    contents = (
-        f"#!{python}\n"
-        "import sys\n"
-        f"sys.path.insert(0, {str(site_root)!r})\n"
-        "from endstone_endkeep.offline.cli import main\n"
-        "raise SystemExit(main())\n"
-    )
-    temporary.write_text(contents, encoding="utf-8")
-    temporary.chmod(0o755)
-    os.replace(temporary, script)
-    return script
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
