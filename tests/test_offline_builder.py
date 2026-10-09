@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from importlib.metadata import distribution
-
 import tomllib
+from importlib.metadata import distribution
+from pathlib import Path
 
 import pytest
 
 from endstone_endkeep.offline.cli import _default_repository, build_parser
-from pathlib import Path
 
 
 def test_generated_offline_script_is_self_contained(tmp_path: Path) -> None:
