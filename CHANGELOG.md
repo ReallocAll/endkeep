@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Persist a fail-closed repository health marker after verification failure; suspend repository writes, retention and GC until a successful deep verification.
+- Preserve queued raw snapshots in degraded mode and block new captures when capacity or disk reserve would be exceeded.
+
 ### Fixed
 - List all retained recovery points and replace starter-template contributor/issue instructions.
 
