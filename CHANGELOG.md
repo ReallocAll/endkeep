@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-09
+
+### Added
+- Manage recovery points online with `/backup delete <snapshot>`, `/backup rollover <snapshot>` and a separate `/backup confirm` after a read-only impact preview.
+- Export a verified recovery point into a separate world directory with `/backup export <snapshot>`.
+- Add a standard `endkeep` console entry point for environments that explicitly install the wheel.
+
+### Changed
+- Keep pending online confirmations in plugin memory only, with no expiration and no disk persistence. Repository changes invalidate stale previews; reloading or restarting EndKeep clears them.
+- Dispatch online management through the existing repository worker, protecting active worlds and configured free-space reserves.
+- Keep the original `tqdm` progress bars and dependency for the standalone offline restore tool; online worker operations do not require `tqdm`.
+
+### Fixed
+- Support suffixed snapshot IDs in exports, reject unsafe export paths and dangling symlinks, and clean up interrupted exports.
+- Make worker management requests idempotent across RPC timeouts, with explicit reporting when request acceptance cannot be confirmed.
+
+
 ## [0.1.8] - 2026-10-08
 
 ### Added
