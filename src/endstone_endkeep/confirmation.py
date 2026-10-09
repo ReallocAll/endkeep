@@ -23,7 +23,7 @@ class MutationConfirmations:
             saved = json.loads(self._marker.read_text(encoding="utf-8"))
             valid = isinstance(saved, list) and all(isinstance(x, str) for x in saved)
             self._restarted = set(saved) if valid else set()
-        except (OSError, ValueError):
+        except OSError, ValueError:
             self._restarted = set()
 
     def get(self, sender_key: str) -> PendingMutation | None:
