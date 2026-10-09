@@ -71,9 +71,10 @@ def _new_progress_bar(
 def _progress_write(message: str) -> None:
     try:
         from tqdm import tqdm
-    except ImportError as exc:
-        raise RuntimeError("tqdm is required for offline progress display; install requirements-offline.txt") from exc
-    tqdm.write(message, file=sys.stderr)
+    except ImportError:
+        print(message, file=sys.stderr)
+    else:
+        tqdm.write(message, file=sys.stderr)
 
 
 def _stage(index: int, total: int, message: str) -> None:
