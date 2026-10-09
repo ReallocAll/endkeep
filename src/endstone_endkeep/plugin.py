@@ -8,6 +8,7 @@ from endstone.command import Command, CommandSender
 from endstone.plugin import Plugin
 
 from .config import ConfigError, EndKeepConfig, reconcile_config_file
+from .confirmation import MutationConfirmations
 from .coordinator import CaptureCoordinator
 from .offline.cli import install_server_launcher
 from .scheduler import EndKeepScheduler, ScheduleEvent, SchedulerState
@@ -25,11 +26,10 @@ class EndKeepPlugin(Plugin):
         "backup": {
             "description": "Manage EndKeep backups",
             "usages": [
-                "/backup (status|create|list|cancel|reload)<action: EndKeepBackupAction>",
+                "/backup (status|create|list|cancel|reload|confirm)<action: EndKeepBackupAction>",
                 "/backup (verify)<action: EndKeepVerifyAction> (deep)[mode: EndKeepVerifyMode]",
                 "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
-                "/backup (delete|rollover)<action: EndKeepMutationAction> <snapshot: str> "
-                "(confirm)[approval: EndKeepMutationApproval] [generation: int]",
+                "/backup (delete|rollover)<action: EndKeepMutationAction> <snapshot: str>",
                 "/backup (export)<action: EndKeepExportAction> <snapshot: str>",
             ],
             "permissions": ["endkeep.admin"],
@@ -57,6 +57,7 @@ class EndKeepPlugin(Plugin):
         self._pending_capture_required_bytes = 0
         self._pending_result_ack: int | None = None
         self._worker_start_retry_ticks = 0
+        self._confirmations: MutationConfirmations | None = None
 
     @override
     def on_enable(self) -> None:
@@ -113,16 +114,14 @@ class EndKeepPlugin(Plugin):
             self._command_verify(sender, deep=deep)
             return True
         if action in ("delete", "rollover"):
-            if len(args) not in (2, 4):
+            if len(args) != 2:
                 return False
-            if len(args) == 4 and (args[2] != "confirm" or not args[3].isdigit()):
+            self._command_mutation(sender, action, args[1])
+            return True
+        if action == "confirm":
+            if len(args) != 1:
                 return False
-            self._command_mutation(
-                sender,
-                action,
-                args[1],
-                expected_generation=int(args[3]) if len(args) == 4 else None,
-            )
+            self._command_confirm(sender)
             return True
         if action == "export":
             if len(args) != 2:
@@ -188,6 +187,9 @@ class EndKeepPlugin(Plugin):
             self._dispatch_schedule_event,
         )
 
+        # New runtime invalidates all previews from any previous plugin/server
+        # lifetime. Only an inert restart marker is persisted for diagnostics.
+        self._confirmations = MutationConfirmations(Path(self.data_folder))
         self._runtime_config = config
         self._storage_root = storage_root
         self._repository = repository
@@ -223,6 +225,7 @@ class EndKeepPlugin(Plugin):
         repository = self._repository
         self._capture = None
         self._repository = None
+        self._confirmations = None
         self._clock = None
         self._pending_capture = False
         self._pending_capture_scheduled_for = None
@@ -757,46 +760,108 @@ class EndKeepPlugin(Plugin):
         mode = "Deep" if deep else "Normal"
         sender.send_message(f"{mode} repository verification started.")
 
-    def _command_mutation(
-        self, sender: CommandSender, operation: str, snapshot: str, *, expected_generation: int | None
-    ) -> None:
+    @staticmethod
+    def _confirmation_sender_key(sender: CommandSender) -> str:
+        # A new Python wrapper may be constructed for each invocation; use a
+        # stable name rather than object identity. Include sender type to keep
+        # console and player namespaces separate.
+        return f"{type(sender).__name__}:{sender.name}"
+
+    def _command_mutation(self, sender: CommandSender, operation: str, snapshot: str) -> None:
+        repository = self._repository
+        capture = self._capture
+        confirmations = self._confirmations
+        if repository is None or capture is None or confirmations is None:
+            sender.send_error_message("EndKeep repository service is unavailable.")
+            return
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Cannot preview repository changes while capture is active or pending.")
+            return
+
+        key = self._confirmation_sender_key(sender)
+        try:
+            # A fresh preview replaces the previous choice even if planning fails.
+            confirmations.forget(key)
+            plan = repository.plan_mutation(operation, snapshot)
+            confirmations.remember(key, operation, snapshot, int(plan["generation"]))
+        except Exception as exc:
+            sender.send_error_message(f"Cannot plan {operation}: {exc}")
+            return
+
+        removed = list(plan["removed"])
+        preview = ", ".join(removed[:4])
+        if len(removed) > 4:
+            preview += f" (+{len(removed) - 4} more)"
+        sender.send_message(
+            f"Preview: {operation} {snapshot}; generation={plan['generation']}; "
+            f"impact={plan['detail']}; removes={preview}; remains={plan['remaining']}."
+        )
+        sender.send_message("To commit: /backup confirm (no time limit; preview is invalidated by repository changes or restart).")
+
+    def _command_confirm(self, sender: CommandSender) -> None:
+        confirmations = self._confirmations
+        if confirmations is None:
+            sender.send_error_message("EndKeep repository service is unavailable; preview again after startup.")
+            return
+        key = self._confirmation_sender_key(sender)
+        preview = confirmations.get(key)
+        if preview is None:
+            if confirmations.was_restarted(key):
+                sender.send_error_message(
+                    "Confirmation invalidated: EndKeep restarted or reloaded after your preview. "
+                    "Run /backup delete or /backup rollover again to preview."
+                )
+            else:
+                sender.send_error_message(
+                    "No pending preview for this sender. Run /backup delete <snapshot> or "
+                    "/backup rollover <snapshot> first."
+                )
+            return
+
         repository = self._repository
         capture = self._capture
         if repository is None or capture is None:
             sender.send_error_message("EndKeep repository service is unavailable.")
             return
-        if capture.busy or self._pending_capture:
-            sender.send_error_message("Cannot change repository while capture is active or pending.")
-            return
-        if expected_generation is None:
-            try:
-                plan = repository.plan_mutation(operation, snapshot)
-            except Exception as exc:
-                sender.send_error_message(f"Cannot plan {operation}: {exc}")
-                return
-            removed = list(plan["removed"])
-            preview = ", ".join(removed[:4])
-            if len(removed) > 4:
-                preview += f" (+{len(removed) - 4} more)"
-            sender.send_message(
-                f"Preview: {operation} {snapshot}; generation={plan['generation']}; "
-                f"impact={plan['detail']}; removes={preview}; remains={plan['remaining']}."
-            )
-            sender.send_message(f"To commit: /backup {operation} {snapshot} confirm {plan['generation']}")
-            return
+
         try:
-            accepted = repository.start_mutation(operation, snapshot, expected_generation=expected_generation)
+            current = repository.list_snapshots()["generation"]
+        except Exception as exc:
+            sender.send_error_message(f"Cannot check repository generation; retry /backup confirm: {exc}")
+            return
+        if current != preview.generation:
+            confirmations.forget(key)
+            sender.send_error_message(
+                f"Confirmation invalidated: repository changed since preview "
+                f"(generation {preview.generation} -> {current}). "
+                f"Run /backup {preview.operation} {preview.snapshot} again to preview."
+            )
+            return
+
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Capture is active or pending; retry /backup confirm when idle.")
+            return
+
+        try:
+            accepted = repository.start_mutation(
+                preview.operation, preview.snapshot, expected_generation=preview.generation
+            )
         except WorkerRequestIndeterminate as exc:
-            sender.send_error_message(str(exc))
+            # The worker may already be modifying the repository. Never allow a
+            # second confirm to submit a fresh request without another preview.
+            confirmations.forget(key)
+            sender.send_error_message(f"{exc} Re-preview before another attempt.")
             return
         except Exception as exc:
-            sender.send_error_message(f"Failed to start {operation}: {exc}")
+            sender.send_error_message(f"Failed to start {preview.operation}: {exc}")
             return
         if not accepted:
-            sender.send_error_message("EndKeep repository is busy.")
+            sender.send_error_message("EndKeep repository is busy; retry /backup confirm when idle.")
             return
+
+        confirmations.forget(key)
         sender.send_message(
-            f"{operation} accepted for {snapshot} (expected generation {expected_generation}). "
+            f"{preview.operation} accepted for {preview.snapshot} (generation {preview.generation}). "
             "Check /backup status and server logs for completion."
         )
 
