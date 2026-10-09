@@ -1,3 +1,2 @@
 amulet-leveldb==3.0.7a0
 zstandard>=0.23,<1
-tqdm>=4.70,<5
