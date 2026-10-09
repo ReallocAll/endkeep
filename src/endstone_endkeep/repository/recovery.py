@@ -76,7 +76,7 @@ class StartupRecovery:
         if self.manifests.head_path.exists():
             try:
                 head_generation = int(self.manifests.head_path.read_text(encoding="ascii").strip())
-            except OSError, ValueError:
+            except (OSError, ValueError):
                 head_generation = None
 
         generations = self._generation_numbers()
@@ -94,7 +94,7 @@ class StartupRecovery:
                 if self._manifest_structurally_valid(current):
                     self.manifests.discard_unpublished()
                     return current, None
-            except ManifestError, OSError, ValueError:
+            except (ManifestError, OSError, ValueError):
                 pass
 
         # Only recover from the newest structurally valid generation when HEAD
