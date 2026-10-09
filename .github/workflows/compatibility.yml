@@ -45,7 +45,7 @@ jobs:
           path: amulet-src
           fetch-depth: 0
           persist-credentials: false
-      - name: Patch Amulet Python floor and Windows VS generator
+      - name: Patch Amulet Python floor
         if: matrix.python != '3.14'
         run: |
           python - <<'PY'
@@ -55,13 +55,7 @@ jobs:
           needle = 'requires-python = ">=3.14"'
           assert content.count(needle) == 1
           project.write_text(content.replace(needle, 'requires-python = ">=3.12"'))
-          import os
-          if os.name == "nt":
-              setup = Path("amulet-src/setup.py")
-              text = setup.read_text()
-              assert text.count("Visual Studio 18 2026") == 1
-              assert text.count("v145") == 1
-              setup.write_text(text.replace("Visual Studio 18 2026", "Visual Studio 17 2022").replace("v145", "v143"))
+
           PY
           cp .github/scripts/amulet_leveldb_smoke.py amulet-src/tests/test_backport_smoke.py
           git -C amulet-src diff --check
