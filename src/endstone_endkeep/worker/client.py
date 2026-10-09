@@ -21,6 +21,10 @@ class WorkerTimeout(WorkerError):
     """Raised when a bounded worker RPC does not answer before its deadline."""
 
 
+class WorkerRejected(WorkerError):
+    """The repository worker explicitly rejected the request."""
+
+
 class WorkerRequestIndeterminate(WorkerError):
     """A management request may have been accepted despite a lost response."""
 
@@ -188,7 +192,7 @@ class RepositoryWorkerClient:
             raise WorkerError(f"repository worker RPC failed: {exc}") from exc
 
         if not response.get("ok", False):
-            raise WorkerError(str(response.get("error", "repository worker rejected the request")))
+            raise WorkerRejected(str(response.get("error", "repository worker rejected the request")))
         return response
 
     @property
@@ -259,6 +263,8 @@ class RepositoryWorkerClient:
         for attempt in range(2):
             try:
                 response = self._rpc(request)
+            except WorkerRejected:
+                raise
             except WorkerError as exc:
                 if attempt == 0:
                     continue
