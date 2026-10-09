@@ -1,0 +1,57 @@
+name: Amulet-LevelDB auto-install compatibility
+
+on:
+  push:
+    branches:
+      - experiment/amulet-leveldb-cp311-cp314
+    paths:
+      - requirements/amulet-leveldb-linux.txt
+      - .github/workflows/amulet-leveldb-auto-install.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-automatic-wheel-selection:
+    name: uv / CPython ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Create clean Python environment
+        run: uv venv .venv --python '${{ matrix.python }}'
+
+      - name: Install matching GitHub Wheel from one remote requirements file
+        run: |
+          uv pip install --python .venv/bin/python -r \
+            https://raw.githubusercontent.com/ReallocAll/endkeep/experiment/amulet-leveldb-cp311-cp314/requirements/amulet-leveldb-linux.txt
+
+      - name: Verify selected ABI, version and real DB operations
+        run: |
+          .venv/bin/python - <<'PY'
+          import sys
+          from importlib.metadata import version
+          from tempfile import TemporaryDirectory
+          from pathlib import Path
+          from amulet.leveldb import LevelDB
+          assert version("amulet-leveldb") == "3.0.7a0+0.g736228e.dirty"
+          with TemporaryDirectory() as d:
+              db = LevelDB(str(Path(d) / "db"), True)
+              db.put_batch({b"one": b"first", b"two": b"second"})
+              assert db.get(b"two") == b"second"
+              db.close()
+          print("AUTO INSTALL OK", sys.version.split()[0], version("amulet-leveldb"))
+          PY
+          uv pip check --python .venv/bin/python
