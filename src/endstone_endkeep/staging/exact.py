@@ -27,10 +27,24 @@ def _check_cancelled(cancel: Event | None) -> None:
         raise ExactStageError("staging cancelled")
 
 
+def _validate_relative_path(relative: PurePosixPath) -> None:
+    if (
+        not relative.parts
+        or relative.is_absolute()
+        or any(part in ("", ".", "..") or "\\" in part or ":" in part for part in relative.parts)
+    ):
+        raise ExactStageError(f"unsafe snapshot path: {relative}")
+
+
 def _safe_destination(root: Path, relative: PurePosixPath) -> Path:
+    _validate_relative_path(relative)
     target = root.joinpath(*relative.parts)
     root_resolved = root.resolve()
     target_parent = target.parent
+    # Validate before mkdir: a malformed path must not create directories outside staging.
+    parent_resolved = target_parent.resolve(strict=False)
+    if parent_resolved != root_resolved and root_resolved not in parent_resolved.parents:
+        raise ExactStageError(f"destination escapes staging root: {relative}")
     target_parent.mkdir(parents=True, exist_ok=True)
     try:
         parent_resolved = target_parent.resolve(strict=True)
@@ -83,8 +97,7 @@ def _open_source_portable(root: Path, relative: PurePosixPath) -> int:
 
 
 def _open_source(root: Path, relative: PurePosixPath) -> int:
-    if not relative.parts or relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
-        raise ExactStageError(f"unsafe source path: {relative}")
+    _validate_relative_path(relative)
     try:
         if os.name == "posix" and os.supports_dir_fd:
             return _open_source_linux(root, relative)
@@ -152,6 +165,10 @@ def stage_manifest(
     """Copy exactly the save-query byte limits and nothing else."""
 
     started = time.monotonic()
+    for entry in manifest.entries:
+        _validate_relative_path(entry.path)
+        if entry.path.parts[0] != manifest.world_name:
+            raise ExactStageError(f"snapshot path is outside world prefix: {entry.path}")
     destination_root.mkdir(parents=True, exist_ok=False)
     copied_bytes = 0
 
