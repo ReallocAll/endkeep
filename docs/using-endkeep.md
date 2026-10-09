@@ -46,6 +46,16 @@ Captures use `save hold/query/resume`. Raw snapshots are queued in `backups/raw/
 then committed to `backups/repo/` during maintenance. The repository is the long-term
 backup; do not use the raw queue as your only recovery copy.
 
+## Wheel CLI
+
+When the server environment has the EndKeep wheel installed, its `endkeep` command
+supports `list`, `verify`, `delete`, `rollover` and `restore`. From the BDS
+working directory, it automatically reads `plugins/endkeep/config.toml` to find
+the repository; `--repo` remains available for explicit paths. For normal
+online management, **prefer `/backup` commands**, which coordinate jobs through the
+worker. Do not run direct CLI mutations while the server or worker may be writing
+to the repository.
+
 ## Offline restore
 
 **Stop BDS before restoring. Never restore over an active world.**

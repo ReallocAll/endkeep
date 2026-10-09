@@ -13,9 +13,9 @@ from .logicalize import Logicalizer, LogicalizeResult
 from .manifest import ManifestStore
 from .mutation import SnapshotMutator
 from .objects import ObjectStore
-from .reader import RepositoryReader
 from .progress import JobCancelled, ProgressTracker
 from .raw_queue import RawLimitResult, RawQueue
+from .reader import RepositoryReader
 from .retention import RetentionDecision, select_retention
 from .rollover import Rollover, RolloverResult
 from .verify import RepositoryVerifier, VerifyReport
@@ -143,7 +143,10 @@ class RepositoryService:
                 elif index == len(manifest.chain) - 1:
                     detail = "remove tail DELTA"
                 else:
-                    detail = f"bridge DELTA {manifest.chain[index - 1].snapshot} -> {manifest.chain[index + 1].snapshot}"
+                    detail = (
+                        f"bridge DELTA {manifest.chain[index - 1].snapshot} "
+                        f"-> {manifest.chain[index + 1].snapshot}"
+                    )
             elif operation == "rollover":
                 if index == 0:
                     raise ValueError("selected snapshot is already the BASE")

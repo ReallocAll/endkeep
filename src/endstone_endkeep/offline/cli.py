@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import time
+import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -565,8 +566,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo",
         type=Path,
-        default=Path("backups/repo"),
-        help="Path to EndKeep repo/ directory (default: backups/repo)",
+        default=None,
+        help="Repository path (default: discover plugins/endkeep/config.toml, otherwise backups/repo)",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -612,10 +613,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _default_repository() -> Path:
+    """Discover the active repository from the server's EndKeep configuration."""
+    server_root = Path.cwd()
+    config_path = server_root / "plugins" / "endkeep" / "config.toml"
+    if config_path.is_file():
+        with config_path.open("rb") as stream:
+            config = tomllib.load(stream)
+        storage = config.get("storage", {})
+        configured = storage.get("path") if isinstance(storage, dict) else None
+        if not isinstance(configured, str) or not configured.strip():
+            raise ValueError(f"invalid storage.path in {config_path}")
+        storage_root = Path(configured)
+        if not storage_root.is_absolute():
+            storage_root = server_root / storage_root
+        return storage_root / "repo"
+    return server_root / "backups" / "repo"
+
+
+def _has_progress_display() -> bool:
+    try:
+        import tqdm  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    repo = args.repo.resolve()
+    repo = (args.repo if args.repo is not None else _default_repository()).resolve()
 
     if args.command in ("delete", "rollover"):
         return command_mutation(repo, args.command, args.snapshot, yes=args.yes)
@@ -625,7 +652,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return command_verify(
             repo,
             verbose=args.verbose,
-            show_progress=True,
+            show_progress=_has_progress_display(),
         )
     if args.command == "restore":
         return command_restore(
