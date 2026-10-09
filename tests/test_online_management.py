@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import time
 from pathlib import Path
@@ -101,13 +102,31 @@ def test_mutating_middle_delta_retains_restore_state(tmp_path: Path) -> None:
     # invoking the logical delta pipeline or altering any repository state.
     probe_root = tmp_path / "probe"
     probe = clone_world(storage / "raw" / S3, "level", probe_root, S3)
+    raw_db = storage / "raw" / S3 / "level" / "db"
+
+    def fingerprint(root: Path) -> list[tuple[str, int, str]]:
+        return sorted(
+            (
+                path.relative_to(root).as_posix(),
+                path.stat().st_size,
+                hashlib.sha256(path.read_bytes()).hexdigest()[:16],
+            )
+            for path in root.rglob("*")
+            if path.is_file()
+        )
+
+    raw_files = fingerprint(raw_db)
+    clone_files = fingerprint(probe / "db")
+    assert raw_files == clone_files, f"clone files differ: raw={raw_files!r}, clone={clone_files!r}"
     with iter_visible_state(probe / "db") as visible:
         probe_state = list(visible)
     shutil.rmtree(probe_root)
     if probe_state != [(b"a", b"final"), (b"c", b"3")]:
         with iter_visible_state(storage / "raw" / S3 / "level" / "db") as visible:
             raw_state = list(visible)
-        pytest.fail(f"cloned DB lost records: raw={raw_state!r}; clone={probe_state!r}")
+        pytest.fail(
+            f"cloned DB lost records: raw={raw_state!r}; clone={probe_state!r}; files={raw_files!r}"
+        )
     third = Logicalizer(storage, compression_level=6, compression_threads=1).logicalize(storage / "raw" / S3)
     # Detect empty/misread Windows clone data before destructive chain edits.
     # Otherwise an empty DELTA could look like a successful delete/export.
