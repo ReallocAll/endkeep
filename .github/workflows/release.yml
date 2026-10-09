@@ -119,8 +119,8 @@ jobs:
           if git rev-parse --verify --quiet "refs/tags/v$VERSION"; then
             CURRENT_TAG="$(git rev-list -n 1 "v$VERSION")"
             if [[ "$CURRENT_TAG" != "$GITHUB_SHA" ]]; then
-              git tag --force "v$VERSION" "$GITHUB_SHA"
-              git push --force origin "refs/tags/v$VERSION"
+              echo "::error::Refusing to move existing release tag v$VERSION from $CURRENT_TAG"
+              exit 1
             fi
           else
             git tag "v$VERSION" "$GITHUB_SHA"
