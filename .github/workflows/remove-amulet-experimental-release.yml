@@ -1,0 +1,30 @@
+name: Remove experimental Amulet-LevelDB release
+
+on:
+  push:
+    branches:
+      - experiment/amulet-leveldb-cp311-cp314
+    paths:
+      - .github/workflows/remove-amulet-experimental-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  remove-release:
+    name: Delete only the obsolete experimental GitHub Release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete release but retain its Git tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: amulet-leveldb-3.0.7a0-backport-cp311-cp314
+        run: |
+          set -euo pipefail
+          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release still exists"
+            exit 1
+          fi
+          echo "Release deleted; git tag retained."
