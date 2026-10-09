@@ -69,7 +69,6 @@ def test_cli_discovers_configured_repository(tmp_path: Path, monkeypatch: pytest
     assert build_parser().parse_args(["--repo", "manual/repo", "list"]).repo == Path("manual/repo")
 
 
-
 def test_offline_requirements_preserve_tqdm() -> None:
     assert "tqdm>=4.70,<5" in Path("requirements-offline.txt").read_text(encoding="utf-8")
 
