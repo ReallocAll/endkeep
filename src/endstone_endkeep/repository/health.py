@@ -24,7 +24,7 @@ class RepositoryHealth:
             if not data["reason"]:
                 raise ValueError("empty failure reason")
             self.reason = data["reason"]
-        except OSError, ValueError, TypeError, AttributeError:
+        except (OSError, ValueError, TypeError, AttributeError):
             # Corrupt health metadata must NEVER be interpreted as healthy.
             self.reason = "repository health marker is unreadable or invalid"
 
