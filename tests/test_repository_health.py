@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from endstone_endkeep.repository.health import RepositoryHealth
+from endstone_endkeep.repository.lock import RepositoryLock
 from endstone_endkeep.repository.maintenance import RepositoryService
+from endstone_endkeep.repository.recovery import StartupRecovery
 from endstone_endkeep.repository.verify import RepositoryVerifier, VerificationError
 from endstone_endkeep.staging.metadata import load_raw_snapshot
 from tests.standalone_fixture import add_raw, build_fixture
@@ -132,3 +134,47 @@ def test_malformed_health_marker_fails_closed(tmp_path: Path) -> None:
         health.require_healthy()
     health.clear_after_deep_verify()
     assert not RepositoryHealth(storage).failed
+
+
+
+def test_full_verification_failure_blocks_next_maintenance(tmp_path: Path, monkeypatch) -> None:
+    storage = tmp_path / "backups"
+    build_fixture(storage)
+    service = _service(storage)
+
+    def fail_verify(self, *, deep=False, object_progress=None, state_progress=None):
+        raise VerificationError("injected FULL verification failure")
+
+    try:
+        monkeypatch.setattr(RepositoryVerifier, "verify", fail_verify)
+        assert service.start_maintenance("FULL")
+        with pytest.raises(VerificationError, match="injected FULL"):
+            _result(service)
+        assert RepositoryHealth(storage).failed
+        with pytest.raises(RuntimeError, match="REPOSITORY FAILED"):
+            service.start_maintenance("LOGIC_ONLY")
+        with pytest.raises(RuntimeError, match="REPOSITORY FAILED"):
+            service.start_mutation("delete", "20261006-163000", 2)
+    finally:
+        service.close()
+
+
+def test_failed_repository_startup_preserves_committed_raw(tmp_path: Path) -> None:
+    storage = tmp_path / "backups"
+    build_fixture(storage)
+    snapshot = "20261006-120000"
+    add_raw(storage, snapshot, [(b"a", b"1"), (b"b", b"2")], b"first")
+    raw = storage / "raw" / snapshot
+    assert raw.exists()
+
+    service = _service(storage)
+    try:
+        service.health.fail(VerificationError("injected corruption"))
+        with RepositoryLock(service.repo_root):
+            report = StartupRecovery(storage, service.manifests, service.objects).run(
+                preserve_committed_raw=service.health.failed
+            )
+        assert report.removed_committed_raw == 0
+        assert raw.exists()
+    finally:
+        service.close()
