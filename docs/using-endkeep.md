@@ -14,6 +14,27 @@ hosts without access to compatible dependency wheels may need their provider to
 preinstall the required packages. Ensure the filesystem has enough space for
 the configured free-space reserve **plus** the raw snapshot staging footprint.
 
+## Anonymous usage metrics
+
+EndKeep uses Endstone 0.11's built-in bStats Metrics API to report anonymous plugin
+usage under [EndKeep's bStats page](https://bstats.org/plugin/bukkit/endkeep/34593)
+(service ID `34593`). No separate `endstone-bstats` package, background worker,
+HTTP client, or EndKeep-specific telemetry scheduler is required. Endstone's built-in
+reporter provides general usage information, including EndKeep/Endstone versions
+and approximate online player counts. EndKeep does not add custom charts for
+world contents, backup repository size, snapshot IDs or filesystem paths.
+
+Reporting follows Endstone's shared bStats preference file,
+`plugins/bstats/config.toml`. Server owners can opt out by setting:
+
+```toml
+enabled = false
+```
+
+Restart Endstone after editing that file. If bStats initialization fails, EndKeep
+continues normal backup operation; telemetry must not be required for backup
+or recovery.
+
 ## Configuration
 
 EndKeep creates `plugins/endkeep/config.toml` when first started.
