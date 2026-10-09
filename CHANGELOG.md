@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - Persist a fail-closed repository health marker after verification failure; suspend repository writes, retention and GC until a successful deep verification.
+- Report anonymous plugin usage through Endstone 0.11's built-in bStats API (service ID 34593), honoring its existing opt-out setting.
 - Preserve queued raw snapshots in degraded mode and block new captures when capacity or disk reserve would be exceeded.
 
 ### Fixed
