@@ -1,0 +1,161 @@
+name: Publish pinned Amulet-LevelDB compatibility Wheels (one-time)
+
+on:
+  push:
+    branches:
+      - release/amulet-leveldb-compat-cp312-cp313
+    paths:
+      - .github/workflows/publish-amulet-leveldb-compat-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    name: Reuse tested Wheels and publish nonofficial prerelease
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Read pinned upstream Amulet license and notices
+        uses: actions/checkout@v4
+        with:
+          repository: Amulet-Team/Amulet-LevelDB
+          ref: 736228e375e9f535b6522bd28168fc306a5354b9
+          path: amulet-upstream
+          persist-credentials: false
+
+      - name: Download Wheels from a successful six-platform test run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_RUN: '37973226010'
+          VERIFIED_SHA: dee5501d04c94e2d5fadfbaf131500157318182e
+        run: |
+          set -euo pipefail
+          actual_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN" --jq '.head_sha')"
+          actual_conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_RUN" --jq '.conclusion')"
+          test "$actual_sha" = "$VERIFIED_SHA"
+          test "$actual_conclusion" = "success"
+          mkdir -p dist
+          gh run download "$VERIFIED_RUN" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name amulet-backports-verified-four-wheels \
+            --dir dist
+          ls -lh dist
+
+      - name: Verify binary provenance, SHA256, license, and package metadata
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check SHA256SUMS)
+          python - <<'PY'
+          from email.parser import Parser
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          root = Path("dist")
+          wheels = sorted(root.glob("*.whl"))
+          assert len(wheels) == 4, [p.name for p in wheels]
+          assert root.joinpath("SHA256SUMS").read_text().count("\n") == 4
+          upstream = Path("amulet-upstream/LICENSE").read_text(encoding="utf-8")
+          assert "Amulet Team License 1.0.0" in upstream
+          assert "Required Notice: Copyright Amulet Team. (https://www.amuletmc.com/)" in upstream
+          for abi in ("cp312", "cp313"):
+              for platform in ("manylinux_", "win_amd64"):
+                  matches = [
+                      wheel for wheel in wheels
+                      if f"-{abi}-{abi}-" in wheel.name and platform in wheel.name
+                  ]
+                  assert len(matches) == 1, (abi, platform, [p.name for p in wheels])
+          for wheel in wheels:
+              with ZipFile(wheel) as archive:
+                  metadata_files = [p for p in archive.namelist() if p.endswith(".dist-info/METADATA")]
+                  assert len(metadata_files) == 1
+                  metadata = Parser().parsestr(archive.read(metadata_files[0]).decode("utf-8"))
+                  assert metadata["Name"] == "amulet-leveldb"
+                  assert metadata["Version"] == "3.0.7a0+0.g736228e.dirty"
+                  assert metadata["Requires-Python"] == ">=3.12"
+                  licenses = [p for p in archive.namelist() if p.endswith(".dist-info/licenses/LICENSE")]
+                  assert len(licenses) == 1, (wheel.name, licenses)
+                  archived_license = archive.read(licenses[0]).decode("utf-8")
+                  assert "Amulet Team License 1.0.0" in archived_license
+                  assert "Required Notice: Copyright Amulet Team." in archived_license
+                  archive_files = archive.namelist()
+                  assert any(p.startswith("amulet/leveldb/") for p in archive_files), wheel.name
+          print("OK: four ABI/platform Wheels, unchanged upstream license, pinned metadata and SHA256")
+          PY
+
+      - name: Create license and reproducibility documentation
+        env:
+          VERIFIED_RUN: '37973226010'
+          VERIFIED_SHA: dee5501d04c94e2d5fadfbaf131500157318182e
+        run: |
+          set -euo pipefail
+          cp amulet-upstream/LICENSE dist/AMULET-TEAM-LICENSE.txt
+          cat > dist/BUILD-INFO.md <<'EOF'
+          # Amulet-LevelDB 3.0.7a0 — unofficial Python 3.12/3.13 compatibility Wheels
+
+          These are **unofficial third-party compatibility builds**, not releases by the Amulet Team.
+          They are made available for development and testing ahead of EndKeep's installation integration.
+
+          - **Original project:** https://github.com/Amulet-Team/Amulet-LevelDB
+          - **Original source tag:** 3.0.7a0
+          - **Original source commit:** 736228e375e9f535b6522bd28168fc306a5354b9
+          - **Build modification:** `requires-python = ">=3.14"` changed to `">=3.12"` in upstream `pyproject.toml`. No C++ source modifications.
+          - **Wheel version:** `3.0.7a0+0.g736228e.dirty` (generated from the modified source checkout).
+          - **Supported binaries here:** Linux x86-64 (manylinux_2_27/2_28) and Windows x86-64, each for CPython 3.12 and 3.13.
+          - **Python 3.14:** use the official upstream Wheel from PyPI instead.
+          - **Validated EndKeep commit:** dee5501d04c94e2d5fadfbaf131500157318182e
+          - **CI run (all 6 combinations passed):** https://github.com/ReallocAll/endkeep/actions/runs/37973226010
+          - **Reproduction recipe:** `.github/workflows/compatibility.yml` at the validated EndKeep commit.
+
+          **License:** Amulet Team License 1.0.0, in `AMULET-TEAM-LICENSE.txt`, and also contained within each Wheel.
+          **Required Notice:** Copyright Amulet Team. (https://www.amuletmc.com/)
+
+          Use is subject to the Amulet Team License's permitted-purpose and noncompete conditions.
+          These binaries are not under EndKeep's MIT license. They are not endorsed by the upstream Amulet Team.
+          This build does not constitute validation of Windows EndKeep crash/power-failure durability.
+          EOF
+          cat > release-notes.md <<'EOF'
+          ## Unofficial Amulet-LevelDB compatibility prerelease
+
+          Third-party rebuilds of **Amulet-LevelDB 3.0.7a0** for **Python 3.12 and 3.13** on **Linux x86-64** and **Windows x86-64**. This is not an upstream Amulet Team release.
+
+          The four Wheels were compiled and tested from upstream source commit `736228e375e9f535b6522bd28168fc306a5354b9`; the only intentional upstream source-tree change was lowering `requires-python` in `pyproject.toml` from 3.14 to 3.12.
+
+          **[Verified six-combination CI run](https://github.com/ReallocAll/endkeep/actions/runs/37973226010)** • EndKeep source commit `dee5501d04c94e2d5fadfbaf131500157318182e`.
+
+          This is a **prerelease for dependency compatibility preparation**, not an EndKeep plugin release. EndKeep's current plugin Wheel still depends on `amulet-leveldb==3.0.7a0` and **does not yet auto-select these GitHub Release Wheels**. Do not expect one-click installation of EndKeep on Python 3.12/3.13 until the dependency integration has landed.
+
+          Python 3.14 users should continue to use upstream's official PyPI release.
+
+          **License:** Amulet Team License 1.0.0 (not MIT); the full original terms are included in `AMULET-TEAM-LICENSE.txt` and each Wheel.
+
+          **Required Notice: Copyright Amulet Team. (https://www.amuletmc.com/)**
+
+          Distribution and use are subject to the license's permitted-purpose (including noncommercial) and noncompete conditions. See `BUILD-INFO.md` for source provenance, compatibility matrix, and verification details; validate individual downloads with `SHA256SUMS`.
+          EOF
+          (
+            cd dist
+            sha256sum AMULET-TEAM-LICENSE.txt BUILD-INFO.md >> SHA256SUMS
+          )
+          (cd dist && sha256sum --check SHA256SUMS)
+
+      - name: Create GitHub prerelease with tested Wheel assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: amulet-leveldb-3.0.7a0-compat-cp312-cp313
+          VERIFIED_SHA: dee5501d04c94e2d5fadfbaf131500157318182e
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release already exists; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$VERIFIED_SHA" \
+            --prerelease \
+            --title "Amulet-LevelDB 3.0.7a0 — unofficial CPython 3.12/3.13 compatibility" \
+            --notes-file release-notes.md \
+            dist/*.whl dist/SHA256SUMS dist/AMULET-TEAM-LICENSE.txt dist/BUILD-INFO.md
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,isPrerelease,assets
