@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from endstone_endkeep.offline.cli import _default_repository, _new_progress_bar, build_parser, install_server_launcher
+from endstone_endkeep.offline.cli import _default_repository, _new_progress_bar, _progress_write, build_parser
 
 
 def test_generated_offline_script_is_self_contained(tmp_path: Path) -> None:
@@ -69,22 +69,51 @@ def test_cli_discovers_configured_repository(tmp_path: Path, monkeypatch: pytest
     assert build_parser().parse_args(["--repo", "manual/repo", "list"]).repo == Path("manual/repo")
 
 
-def test_server_local_cli_launcher_uses_package_location(tmp_path: Path) -> None:
-    launcher = install_server_launcher(tmp_path / "plugins" / "endkeep")
-    assert launcher.is_file()
-    assert launcher.stat().st_mode & 0o111
-    completed = subprocess.run([str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, check=False)
-    assert completed.returncode == 0, completed.stderr
-    assert "EndKeep repository" in completed.stdout
+
+def test_offline_requirements_preserve_tqdm() -> None:
+    assert "tqdm>=4.70,<5" in Path("requirements-offline.txt").read_text(encoding="utf-8")
 
 
-def test_progress_requires_only_standard_library(capsys: pytest.CaptureFixture[str]) -> None:
-    from endstone_endkeep.offline import cli
+def test_offline_progress_uses_original_tqdm_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
 
-    assert "tqdm" not in Path(cli.__file__).read_text(encoding="utf-8")
-    assert "tqdm" not in Path("requirements-offline.txt").read_text(encoding="utf-8")
-    bar = _new_progress_bar(total=2, desc="Checking", unit="obj")
-    bar.update(1)
-    bar.update(1)
+    class FakeTqdm:
+        def __init__(self) -> None:
+            self.kwargs = {}
+            self.messages: list[str] = []
+            self.count = 0
+            self.closed = False
+
+        def __call__(self, **kwargs):
+            self.kwargs = kwargs
+            return self
+
+        def update(self, amount: int) -> None:
+            self.count += amount
+
+        def close(self) -> None:
+            self.closed = True
+
+        def write(self, text: str, *, file) -> None:
+            assert file is sys.stderr
+            self.messages.append(text)
+
+    fake = FakeTqdm()
+    monkeypatch.setitem(sys.modules, "tqdm", SimpleNamespace(tqdm=fake))
+    bar = _new_progress_bar(total=25, desc="Checking", unit="obj")
+    bar.update(5)
     bar.close()
-    assert "Checking: 2/2 obj" in capsys.readouterr().err
+    _progress_write("details")
+    assert fake.kwargs == {
+        "total": 25,
+        "desc": "Checking",
+        "unit": "obj",
+        "unit_scale": False,
+        "dynamic_ncols": True,
+        "mininterval": 0.2,
+        "file": sys.stderr,
+        "leave": True,
+    }
+    assert fake.count == 5
+    assert fake.closed
+    assert fake.messages == ["details"]
