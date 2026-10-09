@@ -118,3 +118,6 @@ class QueryManifestParser:
             raise QueryManifestError(f"unsafe relative path: {raw!r}")
         if "\\" in raw:
             raise QueryManifestError(f"backslash path is forbidden in query manifest: {raw!r}")
+        if ":" in raw:
+            # Windows drive prefixes and alternate data streams are not world files.
+            raise QueryManifestError(f"colon is forbidden in query manifest path: {raw!r}")
