@@ -475,11 +475,12 @@ def command_restore(
                 if space_guard is not None:
                     space_guard()
 
+            callback_enabled = rebuild_bar is not None or progress is not None or space_guard is not None
             try:
                 records, value_bytes = write_fresh_leveldb(
                     destination / "db",
                     state,
-                    progress=on_written if rebuild_bar is not None or progress is not None or space_guard is not None else None,
+                    progress=on_written if callback_enabled else None,
                 )
             finally:
                 if rebuild_bar is not None:
