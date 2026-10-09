@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -67,6 +68,7 @@ def test_worker_mutation_preview_and_generation_guard(tmp_path: Path) -> None:
                     "operation": "delete",
                     "snapshot": S2,
                     "expected_generation": plan["generation"],
+                    "request_id": "e" * 32,
                 }
             )["accepted"]
             is False
@@ -150,6 +152,16 @@ def test_export_rejects_unsafe_and_existing_destinations(tmp_path: Path) -> None
             _result(service)
         assert (storage / "exports" / S2 / "level.dat").read_bytes() == b"second"
 
+        # An otherwise absent dangling symlink must not escape the exports root.
+        dangling = exports = storage / "exports"
+        outside = tmp_path / "outside"
+        (dangling / S1).symlink_to(outside, target_is_directory=True)
+        assert service.start_export(S1)
+        with pytest.raises(ValueError, match="symbolic link"):
+            _result(service)
+        assert not outside.exists()
+        (dangling / S1).unlink()
+
         # Refuse to follow a top-level export directory symlink.
         exports = storage / "exports"
         exports.rename(storage / "old-exports")
@@ -176,5 +188,64 @@ def test_external_repository_change_makes_preview_stale(tmp_path: Path) -> None:
         assert service.start_mutation("rollover", S2, plan["generation"])
         with pytest.raises(RuntimeError, match="changed since preview"):
             _result(service)
+    finally:
+        service.close()
+
+
+def test_worker_deduplicates_accepted_management_requests(tmp_path: Path) -> None:
+    storage = tmp_path / "backups"
+    build_fixture(storage)
+    service = _service(storage)
+    try:
+        app = WorkerApplication(storage, priority="background")
+        app.service = service
+        generation = service.plan_mutation("delete", S1)["generation"]
+        request = {
+            "command": "start_mutation",
+            "operation": "delete",
+            "snapshot": S1,
+            "expected_generation": generation,
+            "request_id": "a" * 32,
+        }
+        assert app.handle(request)["accepted"] is True
+        assert app.handle(request)["accepted"] is True  # retry while busy
+        conflict = {**request, "snapshot": S2}
+        assert app.handle(conflict)["ok"] is False
+        assert _result(service).kind == "mutation"
+        assert app.handle(request)["accepted"] is True  # retry after completion
+        assert ManifestStore(storage / "repo").load_current().generation == generation + 1
+    finally:
+        service.close()
+
+
+def test_export_preserves_disk_reserve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = tmp_path / "backups"
+    build_fixture(storage)
+    service = _service(storage)
+    try:
+        monkeypatch.setattr(
+            "endstone_endkeep.repository.maintenance.shutil.disk_usage",
+            lambda _path: SimpleNamespace(free=1),
+        )
+        assert service.start_export(S2)
+        with pytest.raises(RuntimeError, match="insufficient free space"):
+            _result(service)
+        assert not (storage / "exports" / S2).exists()
+    finally:
+        service.close()
+
+
+def test_export_accepts_suffix_snapshots(tmp_path: Path) -> None:
+    storage = tmp_path / "backups"
+    build_fixture(storage)
+    snapshot = "20261006-200000-01"
+    add_raw(storage, snapshot, [(b"a", b"three")], b"third")
+    Logicalizer(storage, compression_level=6, compression_threads=1).logicalize(storage / "raw" / snapshot)
+    service = _service(storage)
+    try:
+        assert service.start_export(snapshot)
+        result = _result(service)
+        assert result.export["snapshot"] == snapshot
+        assert (storage / "exports" / snapshot / "level.dat").read_bytes() == b"third"
     finally:
         service.close()
