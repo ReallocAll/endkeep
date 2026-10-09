@@ -38,7 +38,9 @@ command containing the current repository generation, for example
 Mutations never run concurrently with maintenance and do not immediately reclaim
 orphan objects; scheduled full maintenance handles garbage collection.
 
-Exports always go to `<storage.path>/exports/<snapshot-id>/`. They do not overwrite
+Exports always go to `<storage.path>/exports/<snapshot-id>/`. Before restoring,
+EndKeep reserves a conservative estimate of the required free space and monitors
+the configured storage reserve while writing. They do not overwrite
 an existing directory or the active world. These jobs run in the repository
 worker and can take time; monitor them with `/backup status` and server logs.
 
@@ -48,13 +50,21 @@ backup; do not use the raw queue as your only recovery copy.
 
 ## Wheel CLI
 
-When the server environment has the EndKeep wheel installed, its `endkeep` command
-supports `list`, `verify`, `delete`, `rollover` and `restore`. From the BDS
-working directory, it automatically reads `plugins/endkeep/config.toml` to find
-the repository; `--repo` remains available for explicit paths. For normal
-online management, **prefer `/backup` commands**, which coordinate jobs through the
-worker. Do not run direct CLI mutations while the server or worker may be writing
-to the repository.
+The installed wheel exposes a standard `endkeep` console entry point when
+installed with pip. Endstone normally installs plugin wheels under its private
+`plugins/.local` prefix instead of the server environment, so starting EndKeep
+also creates an executable launcher at `plugins/endkeep/endkeep`.
+
+From the BDS working directory, run `./plugins/endkeep/endkeep list` (or
+`./plugins/endkeep/endkeep verify`). The launcher uses the server's Python and
+the Endstone-managed plugin location; no separate installation or Python path
+configuration is required. The CLI reads `plugins/endkeep/config.toml` to find
+the repository, and `--repo` remains available for explicit paths.
+
+The wheel and standalone CLI display progress using Python's standard library;
+neither requires `tqdm`. For live mutations or exports, **prefer `/backup`**
+commands, which coordinate jobs through the worker. Do not run direct CLI
+mutations while the server or worker may be writing to the repository.
 
 ## Offline restore
 
