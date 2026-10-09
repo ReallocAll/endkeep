@@ -7,10 +7,12 @@ It stores snapshots in the directory configured by `storage.path` (default: `bac
 
 Install the plugin wheel from [Releases](https://github.com/ReallocAll/endkeep/releases/latest)
 into `plugins/` and restart Endstone. **Current public releases** require Linux,
-Python 3.14 and Endstone 0.11. Cross-platform Python 3.12–3.14 support is
-under development; 3.12/3.13 also require unreleased Amulet-LevelDB compatibility
-Wheels. Endstone downloads required dependencies during plugin installation,
-so published compatible Wheels and internet access are prerequisites.
+Python 3.14 and Endstone 0.11. Cross-platform Python 3.12–3.14 support is under validation. For Python
+3.12/3.13 on Linux/Windows x64, the plugin automatically fetches the pinned
+Amulet-LevelDB compatibility Wheel from the
+[dedicated Release](https://github.com/ReallocAll/endkeep/releases/tag/amulet-leveldb-3.0.7a0-compat-cp312-cp313).
+Python 3.14 uses the official upstream dependency. The host must reach
+GitHub Releases and PyPI for the initial dependency installation.
 
 Use `/backup status` to check that EndKeep loaded successfully.
 Use `/backup create` for an immediate snapshot, then `/backup maintenance`

@@ -36,9 +36,9 @@ uv run pytest
 - Update user documentation for visible behavior changes. Explain what server
   owners need to do; keep internal implementation notes out of usage guides.
 - Do not create releases or rewrite version tags unless explicitly requested.
-- Python 3.12/3.13 requires locally built Amulet-LevelDB 3.0.7a0 Wheels until
-  separate compatibility distributions are published; the repository's
-  existing uv.lock was created for the previous published dependency set.
+- Python 3.12/3.13 resolves pinned, SHA256-verified Amulet-LevelDB compatibility
+  Wheels from the dedicated GitHub Release. Test a clean EndKeep install without
+  pre-installing the dependency. The uv.lock file predates this dependency change.
 - The six-combination compatibility workflow is not a substitute for
   testing real BDS worlds, especially NTFS crash and directory metadata durability.
 

@@ -89,10 +89,17 @@ jobs:
           else
             PYTHON=.venv/bin/python
           fi
-          if [[ "${{ matrix.python }}" != "3.14" ]]; then
-            uv pip install --python "$PYTHON" amulet-dist/*.whl
-          fi
+          # Fresh dependency resolution: do NOT seed the local Amulet build.
+          # This must fetch the exact published GitHub Release Wheel on 3.12/3.13.
           uv pip install --python "$PYTHON" -e '.[dev]'
+          "$PYTHON" - <<'PY'
+          from importlib.metadata import distribution
+          from packaging.requirements import Requirement
+          requires = distribution("endstone-endkeep").requires or []
+          amulet = [Requirement(req) for req in requires if Requirement(req).name == "amulet-leveldb"]
+          assert len(amulet) == 5, [str(req) for req in amulet]
+          print("Packaged Amulet selectors:", *amulet, sep="\\n")
+          PY
           uv pip check --python "$PYTHON"
           "$PYTHON" - <<'PY'
           from importlib.metadata import version

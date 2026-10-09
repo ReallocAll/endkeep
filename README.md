@@ -10,10 +10,11 @@ without storing a complete world copy each time, and lets you restore an earlier
 
 **Current public releases** require Linux x86-64, Python 3.14 and Endstone 0.11;
 tested on Ubuntu 26.04 LTS. Development CI for the next version also covers
-Linux/Windows x86-64 with Python 3.12–3.14. The Python 3.12/3.13 builds require
-compatibility Wheels of Amulet-LevelDB that have not been published yet.
-Do not install a development build on a production server without the
-platform-specific dependency and backup/restore validation.
+Linux/Windows x86-64 with Python 3.12–3.14. For Python 3.12/3.13, the plugin automatically downloads matching, pinned,
+unofficial Amulet-LevelDB compatibility Wheels from our
+[compatibility Release](https://github.com/ReallocAll/endkeep/releases/tag/amulet-leveldb-3.0.7a0-compat-cp312-cp313).
+These builds are for x86-64 Linux and Windows only. Python 3.14 still uses
+upstream PyPI. Production rollout still requires live BDS validation.
 
 1. Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
 2. Place it in your server's `plugins/` directory.
