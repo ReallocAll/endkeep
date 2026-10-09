@@ -24,7 +24,7 @@ class RepositoryHealth:
             if not data["reason"]:
                 raise ValueError("empty failure reason")
             self.reason = data["reason"]
-        except OSError, ValueError, TypeError, AttributeError:
+        except (OSError, ValueError, TypeError, AttributeError):
             # Corrupt health metadata must NEVER be interpreted as healthy.
             self.reason = "repository health marker is unreadable or invalid"
 
@@ -67,8 +67,17 @@ class RepositoryHealth:
         self.reason = None
 
     def _fsync_root(self) -> None:
-        fd = os.open(self.storage_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
-            os.fsync(fd)
+            fd = os.open(self.storage_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except OSError:
+            if os.name == "posix":
+                raise
+            return
+        try:
+            try:
+                os.fsync(fd)
+            except OSError:
+                if os.name == "posix":
+                    raise
         finally:
             os.close(fd)

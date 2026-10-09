@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Support Python 3.12–3.14 on Linux and Windows x86-64.
+- Automatically resolve pinned Amulet-LevelDB compatibility Wheels for Python 3.12/3.13.
+- Add cross-platform CI and real BDS tests through bds-test-lab.
+
+### Fixed
+- Preserve binary LevelDB and sidecar data on Windows during backup and recovery.
+- Improve worker process handling, path safety and filesystem compatibility.
+- Exclude non-EndKeep tags from VCS version generation.
+
+### Documentation
+- Update installation, recovery and platform validation guides.
+
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

@@ -7,7 +7,12 @@ name = "endstone-endkeep"
 dynamic = ["version"]
 dependencies = [
     "endstone>=0.11,<0.12",
-    "amulet-leveldb==3.0.7a0",
+    # Official upstream Wheel for Python 3.14; pinned, tested backports for 3.12 and 3.13.
+    "amulet-leveldb==3.0.7a0; python_version == '3.14'",
+    'amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=283e7e57e4d15d7ee59457a89db8c43be9a1cd85c7174844f3a1f1bd14d93bbd ; python_version == "3.12" and sys_platform == "linux" and platform_machine == "x86_64"',
+    'amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp312-cp312-win_amd64.whl#sha256=9033156a570ceef3613486a681b990f442788b636da1018838eb6ffdd3dca73f ; python_version == "3.12" and sys_platform == "win32" and platform_machine == "AMD64"',
+    'amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=718d5ff3887b4d848f811a49ab6a7fe3e0b1f863821029190714c4ea5362d9fc ; python_version == "3.13" and sys_platform == "linux" and platform_machine == "x86_64"',
+    'amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp313-cp313-win_amd64.whl#sha256=28dc6037e3d16355a5120baba1ec61065d020f65500ca9de20d97deaaac0ab2f ; python_version == "3.13" and sys_platform == "win32" and platform_machine == "AMD64"',
     "zstandard>=0.23,<1",
     "tomlkit>=0.13,<1",
 ]
@@ -18,11 +23,14 @@ description = "Crash-safe logical incremental world backups for Endstone"
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["endstone", "minecraft", "bedrock", "backup", "leveldb"]
-requires-python = ">=3.14"
+requires-python = ">=3.12,<3.15"
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
 
@@ -47,7 +55,7 @@ endkeep = "endstone_endkeep:EndKeepPlugin"
 
 [tool.ruff]
 line-length = 120
-target-version = "py314"
+target-version = "py312"
 extend-exclude = ["src/endstone_endkeep/_version.py"]
 
 [tool.ruff.lint]
@@ -57,8 +65,16 @@ select = ["I", "E", "F", "UP", "B"]
 testpaths = ["tests"]
 addopts = "-ra"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.version.raw-options]
+# Ignore the separately published Amulet compatibility tag in this repository.
+# Only EndKeep vX.Y.Z tags should control the plugin version.
+git_describe_command = "git describe --dirty --tags --long --match 'v[0-9]*'"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/endstone_endkeep/_version.py"

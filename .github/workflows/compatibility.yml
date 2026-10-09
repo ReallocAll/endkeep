@@ -1,0 +1,172 @@
+name: Python and Windows compatibility
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: compatibility-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  full-matrix:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, python: '3.12', wheel: cp312-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.13', wheel: cp313-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.14', wheel: '' }
+          - { os: windows-2025, python: '3.12', wheel: cp312-win_amd64 }
+          - { os: windows-2025, python: '3.13', wheel: cp313-win_amd64 }
+          - { os: windows-2025, python: '3.14', wheel: '' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout EndKeep
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout upstream Amulet 3.0.7a0 at verified commit
+        if: matrix.python != '3.14'
+        uses: actions/checkout@v4
+        with:
+          repository: Amulet-Team/Amulet-LevelDB
+          ref: 736228e375e9f535b6522bd28168fc306a5354b9
+          path: amulet-src
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Patch Amulet Python floor
+        if: matrix.python != '3.14'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          project = Path("amulet-src/pyproject.toml")
+          content = project.read_text()
+          needle = 'requires-python = ">=3.14"'
+          assert content.count(needle) == 1
+          project.write_text(content.replace(needle, 'requires-python = ">=3.12"'))
+
+          PY
+          cp .github/scripts/amulet_leveldb_smoke.py amulet-src/tests/test_backport_smoke.py
+          git -C amulet-src diff --check
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install cibuildwheel
+        if: matrix.python != '3.14'
+        run: python -m pip install 'cibuildwheel~=4.1'
+      - name: Build and test Amulet wheel
+        if: matrix.python != '3.14'
+        env:
+          CIBW_BEFORE_BUILD: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_BEFORE_TEST: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_TEST_COMMAND: 'python {project}/tests/test_backport_smoke.py && python {project}/tests/test_db.py'
+          CIBW_TEST_SOURCES: tests
+        run: |
+          mkdir -p amulet-dist
+          cd amulet-src
+          python -m cibuildwheel --only '${{ matrix.wheel }}' --output-dir ../amulet-dist .
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Test installed EndKeep with matched Amulet
+        run: |
+          uv venv .venv --python '${{ matrix.python }}'
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            PYTHON=.venv/Scripts/python.exe
+          else
+            PYTHON=.venv/bin/python
+          fi
+          # Fresh dependency resolution: do NOT seed the local Amulet build.
+          # This must fetch the exact published GitHub Release Wheel on 3.12/3.13.
+          uv pip install --python "$PYTHON" -e '.[dev]'
+          "$PYTHON" - <<'PY'
+          from importlib.metadata import distribution
+          from packaging.requirements import Requirement
+          requires = distribution("endstone-endkeep").requires or []
+          amulet = [Requirement(req) for req in requires if Requirement(req).name == "amulet-leveldb"]
+          assert len(amulet) == 5, [str(req) for req in amulet]
+          print("Packaged Amulet selectors:", *amulet, sep="\\n")
+          PY
+          uv pip check --python "$PYTHON"
+          "$PYTHON" - <<'PY'
+          from importlib.metadata import version
+          from amulet.leveldb import LevelDB
+          assert version("amulet-leveldb").split("+")[0] == "3.0.7a0"
+          print("Amulet:", version("amulet-leveldb"))
+          PY
+          "$PYTHON" -m pytest -q
+      - name: Save tested experimental backports (no Release)
+        if: matrix.python != '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: amulet-compat-${{ matrix.os }}-${{ matrix.python }}
+          path: amulet-dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  verified-backports:
+    name: Collect verified CPython 3.12/3.13 Wheels
+    needs: full-matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download four tested wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: amulet-compat-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate Wheels and create SHA256 manifest
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          root = Path("dist")
+          wheels = sorted(root.glob("*.whl"))
+          assert len(wheels) == 4, [p.name for p in wheels]
+          for abi in ("cp312", "cp313"):
+              for platform in ("manylinux_", "win_amd64"):
+                  matches = [
+                      p for p in wheels
+                      if f"-{abi}-{abi}-" in p.name and platform in p.name
+                  ]
+                  assert len(matches) == 1, (abi, platform, [p.name for p in wheels])
+          for wheel in wheels:
+              with ZipFile(wheel) as archive:
+                  meta = next(path for path in archive.namelist() if path.endswith(".dist-info/METADATA"))
+                  data = archive.read(meta).decode("utf-8")
+                  assert "Name: amulet-leveldb" in data
+                  assert "Version: 3.0.7a0+0.g736228e.dirty" in data
+                  assert "Requires-Python: >=3.12" in data
+                  assert any(path.endswith(".dist-info/licenses/LICENSE") for path in archive.namelist())
+          (root / "SHA256SUMS").write_text("".join(
+              f"{sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+              for path in wheels
+          ))
+          print((root / "SHA256SUMS").read_text())
+          PY
+
+      - name: Upload verified wheel set for review (not a GitHub Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: amulet-backports-verified-four-wheels
+          path: |
+            dist/*.whl
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

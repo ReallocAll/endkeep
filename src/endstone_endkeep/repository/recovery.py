@@ -76,7 +76,7 @@ class StartupRecovery:
         if self.manifests.head_path.exists():
             try:
                 head_generation = int(self.manifests.head_path.read_text(encoding="ascii").strip())
-            except OSError, ValueError:
+            except (OSError, ValueError):
                 head_generation = None
 
         generations = self._generation_numbers()
@@ -94,7 +94,7 @@ class StartupRecovery:
                 if self._manifest_structurally_valid(current):
                     self.manifests.discard_unpublished()
                     return current, None
-            except ManifestError, OSError, ValueError:
+            except (ManifestError, OSError, ValueError):
                 pass
 
         # Only recover from the newest structurally valid generation when HEAD
@@ -139,7 +139,7 @@ class StartupRecovery:
         self.manifests.repo_root.mkdir(parents=True, exist_ok=True)
         part = self.manifests.repo_root / "HEAD.recovery.part"
         part.unlink(missing_ok=True)
-        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
         try:
             payload = f"{generation}\n".encode("ascii")
             os.write(fd, payload)

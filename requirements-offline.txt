@@ -1,3 +1,7 @@
-amulet-leveldb==3.0.7a0
+amulet-leveldb==3.0.7a0 ; python_version == '3.14'
+amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=283e7e57e4d15d7ee59457a89db8c43be9a1cd85c7174844f3a1f1bd14d93bbd ; python_version == "3.12" and sys_platform == "linux" and platform_machine == "x86_64"
+amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp312-cp312-win_amd64.whl#sha256=9033156a570ceef3613486a681b990f442788b636da1018838eb6ffdd3dca73f ; python_version == "3.12" and sys_platform == "win32" and platform_machine == "AMD64"
+amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=718d5ff3887b4d848f811a49ab6a7fe3e0b1f863821029190714c4ea5362d9fc ; python_version == "3.13" and sys_platform == "linux" and platform_machine == "x86_64"
+amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp313-cp313-win_amd64.whl#sha256=28dc6037e3d16355a5120baba1ec61065d020f65500ca9de20d97deaaac0ab2f ; python_version == "3.13" and sys_platform == "win32" and platform_machine == "AMD64"
 zstandard>=0.23,<1
 tqdm>=4.70,<5
