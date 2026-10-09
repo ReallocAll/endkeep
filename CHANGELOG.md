@@ -7,18 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- Persist a fail-closed repository health marker after verification failure; suspend repository writes, retention and GC until a successful deep verification.
-- Report anonymous plugin usage through Endstone 0.11's built-in bStats API (service ID 34593), honoring its existing opt-out setting.
-- Preserve queued raw snapshots in degraded mode and block new captures when capacity or disk reserve would be exceeded.
+- Add automatic bStats usage reporting through Endstone's built-in metrics service.
+- Protect existing backups when repository verification or background processing fails.
+- Preserve pending snapshots when backup limits are reached.
 
 ### Fixed
-- List all retained recovery points and replace starter-template contributor/issue instructions.
-- Reject new captures while preserving pending raw recovery points after logicalization failures.
-- Refuse to rewrite existing version tags during release automation.
-- Correct live validation to Ubuntu 26.04 LTS and disclose third-party licensing and platform prerequisites.
+- Show all available recovery points in `/backup list`.
+- Prevent unsuccessful snapshot processing from discarding recovery data.
+- Improve release safeguards and platform documentation.
 
 ### Documentation
-- Document configuration safety limits, platform validation, recovery format compatibility and security reporting.
+- Simplify installation, backup management, configuration and recovery guides.
 
 ## [0.1.9] - 2026-10-09
 
