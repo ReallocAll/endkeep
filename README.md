@@ -2,332 +2,65 @@
 
 [![Build](https://github.com/ReallocAll/endkeep/actions/workflows/build.yml/badge.svg)](https://github.com/ReallocAll/endkeep/actions/workflows/build.yml)
 
-EndKeep is a crash-safe logical incremental world backup plugin for
+EndKeep is a crash-safe, incremental world backup plugin for
 [Endstone](https://github.com/EndstoneMC/endstone) and Minecraft Bedrock Dedicated Server.
+It captures online recovery points and stores changes to the *logical* LevelDB state,
+rather than keeping a complete copy of the world each time.
 
-It creates short online recovery-point captures with BDS `save hold/query/resume`, then converts
-those raw snapshots during maintenance windows into a compact logical repository based on the
-visible Bedrock LevelDB key/value state.
+## Install
 
-## Requirements
+**Linux only.** Requires Python 3.14 and Endstone 0.11 (`>=0.11,<0.12`).
 
-- Python 3.14
-- Endstone >= 0.11 and < 0.12
-- Bedrock Dedicated Server managed by Endstone
-- Amulet-LevelDB 3.0.7a0
-- zstandard
+Download the latest [EndKeep release](https://github.com/ReallocAll/endkeep/releases/latest),
+place the `.whl` file in your server's `plugins/` directory, and start the server.
+Endstone installs the plugin dependencies automatically.
 
-## How it works
+## Quick start
 
-The latency-sensitive online capture path is deliberately small:
-
-```text
-save hold
--> save query
--> copy exactly the files and byte limits reported by BDS
--> save resume
-```
-
-Hashing, zstd compression, Amulet LevelDB scans, semantic diffing, retention, rollover, and
-repository verification happen after BDS has resumed. Heavy repository work runs in a dedicated
-long-lived Python worker process, so it has its own interpreter/GIL and cannot starve Endstone's
-embedded Python runtime. The plugin automatically starts or reconnects to this worker; no separate
-daemon setup is required.
-
-Raw snapshots are a short-lived write-back queue, not the long-term backup format. Successful
-maintenance converts them into:
-
-- **BASE** — complete canonical visible LevelDB state.
-- **DELTA** — sorted semantic PUT/DELETE changes relative to the previous logical state.
-- **SIDECAR** — every query-manifest file under the world that is not under `world/db/**`.
-
-The repository uses immutable content-addressed objects, generation manifests, and an atomic
-`HEAD`. A raw snapshot is deleted only after the new logical objects, manifest generation, and
-`HEAD` are durable.
-
-## Default schedule
-
-EndKeep uses the operating system's local time.
-
-Online recovery-point captures:
-
-```text
-12:00
-16:30
-20:30
-23:45
-```
-
-Maintenance:
-
-```text
-06:00  FULL
-18:30  LOGIC_ONLY
-```
-
-`LOGIC_ONLY` drains all pending raw snapshots into the repository in timestamp order.
-
-`FULL` first performs the same drain, then applies retention, any required logical rollover,
-orphan-object GC, stale work cleanup, and repository verification at the configured `verify.mode`.
-
-Missed schedule times are not replayed later. If a maintenance window arrives while repository work
-is already active, EndKeep coalesces it into at most one durable pending maintenance slot instead of
-dropping it. `FULL` subsumes `LOGIC_ONLY`, and an accepted pending job survives plugin reloads or
-server restarts until it can run.
-
-## Configuration
-
-The plugin writes `plugins/endkeep/config.toml` on first start.
-
-```toml
-enabled = true
-
-[capture]
-times = [
-    "12:00",
-    "16:30",
-    "20:30",
-    "23:45",
-]
-
-[maintenance]
-times = [
-    "06:00",
-    "18:30",
-]
-
-[raw]
-max_pending = 18
-max_age_days = 3
-
-[logical]
-compression_level = 6
-compression_threads = 4
-
-[retention]
-keep_days = 7
-keep_last = 28
-
-[storage]
-path = "backups"
-min_free_space_gib = 5
-
-[worker]
-priority = "background"
-
-[verify]
-mode = "normal"
-```
-
-Transient `save query` misses are retried internally every 10 server ticks. The capture still has a fixed
-15-second query deadline, after which EndKeep enters the fail-safe `save resume` recovery path.
-
-Retention keeps a snapshot when it is **within `keep_days` OR among the last `keep_last`**.
-The raw hard limits are safety limits: if the queue cannot be logicalized and a hard limit must be
-enforced, EndKeep drops the oldest raw recovery point first so newer player work remains protected.
-It still preserves the configured free-space reserve rather than filling the BDS disk.
-
-`worker.priority` selects a normalized operating-system scheduling policy:
-
-- `conservative` — strongest preference for BDS responsiveness; intended for constrained 1-2 core hosts.
-- `background` — default; aggressively uses otherwise-idle resources but yields CPU/I/O weight under contention.
-- `balanced` — smaller priority penalty when backup completion time matters more.
-- `throughput` — normal OS priority for maximum repository throughput; EndKeep never raises itself above BDS.
-
-EndKeep does not depend on Spark/PAPI or MSPT-based throttling. CPU placement and contention are left
-to the operating-system scheduler. On startup, missing configuration keys are recursively added from
-the packaged defaults; existing values and unknown keys are preserved. Existing invalid values fail
-configuration validation instead of being silently overwritten.
-
-`verify.mode` controls the verification performed at the end of FULL maintenance. `normal` (default)
-performs structural checks, while `deep` additionally verifies immutable object content and replays
-every retained logical state. Manual verification is explicit: `/backup verify` always performs normal
-verification and `/backup verify deep` requests deep verification.
-
-## Administrator commands
-
-All `/backup` commands require `endkeep.admin` and are OP/console-only by default.
+EndKeep creates recovery points automatically. Use the server console or an operator account to check them:
 
 ```text
 /backup status
-/backup create
 /backup list
-/backup maintenance
-/backup maintenance full
-/backup verify
-/backup verify deep
-/backup cancel
-/backup reload
+/backup create
 ```
 
-`/backup create` creates a raw snapshot only. It does not immediately force normal
-logicalization.
+`/backup create` captures a recovery point; repository processing runs later during maintenance.
+See [Using EndKeep](docs/using-endkeep.md) for schedules, configuration and offline restore.
 
-`/backup status` prints a one-shot worker/job snapshot. Active jobs include a stage pipeline such as
-`Clone  [Logicalize]  Sidecar  Commit  Retention  Rollover  GC  Verify  Finalize` followed by current progress; EndKeep does
-not continuously print progress to the console.
+## Features
 
-`/backup cancel` requests cooperative cancellation of the current repository job. Cancellation is
-honored only at transaction-safe checkpoints; an atomic manifest/HEAD commit is always allowed to
-finish. Any queued maintenance job remains queued.
+- **Online snapshots** — short `save hold/query/resume` captures; heavier work runs after saving resumes.
+- **Logical incremental storage** — one BASE followed by semantic DELTAs of visible LevelDB key/value data.
+- **Crash-safe repository** — immutable compressed objects and atomic manifest publication.
+- **Background processing** — a separate worker process keeps repository work outside Endstone's Python interpreter.
+- **Offline recovery** — list, verify and restore individual snapshots with the standalone recovery tool.
 
-A normal Endstone `/reload` detaches the plugin controller but leaves an active repository worker
-running. The new plugin instance reconnects to the same worker and continues observing the existing
-job instead of restarting it.
+## Storage efficiency
 
-There is intentionally no online `/backup restore`, `/backup delete`, or `/backup rollover`.
+In a 54-hour live-server test, EndKeep stored **14 recovery points** using **92.67% less space**
+than 14 separately compressed full-world backups.
 
-## Storage layout
+| 14 recovery points | Storage |
+| --- | ---: |
+| Independent full backups (TAR + Zstd-6) | 7.40 GiB |
+| **EndKeep** (1 BASE + 13 DELTAs) | **0.54 GiB** |
 
-By default:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmarks/2026-10-storage/cumulative-storage-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/benchmarks/2026-10-storage/cumulative-storage.svg">
+  <img src="docs/benchmarks/2026-10-storage/cumulative-storage.svg" alt="Fourteen Bedrock recovery points: independently compressed full backups reach 7.40 GiB while EndKeep uses about 0.54 GiB, with an inset showing EndKeep's per-snapshot growth.">
+</picture>
 
-```text
-backups/
-├── raw/
-│   ├── .incoming/
-│   └── <snapshot-id>/
-├── repo/
-│   ├── LOCK
-│   ├── HEAD
-│   ├── objects/
-│   ├── manifests/
-│   └── .incoming/
-├── work/
-├── scheduler-state.json
-├── worker-runtime.json
-└── worker.log
-```
+Both series use GiB; the inset shows EndKeep's per-snapshot growth on a zoomed scale.
+[Benchmark methodology and data](docs/benchmarks/2026-10-storage/benchmark.md).
 
-`raw/` may normally contain only a few snapshots. `repo/` is the authoritative long-term
-backup repository.
+## Documentation
 
-## Installation
-
-EndKeep currently supports Linux only; Windows is not a supported or tested runtime.
-
-Download the EndKeep `.whl` from either a GitHub Actions build artifact or a GitHub Release and
-place it in the server's `plugins/` directory. Endstone installs Python plugin wheels and their
-runtime dependencies into its managed plugin environment automatically; restart the server or use
-Endstone's plugin reload flow as appropriate.
-
-Current Amulet-LevelDB 3.0.7a0 metadata contains a compiler-version identifier that current uv
-resolvers reject, so EndKeep intentionally uses pip for runtime/offline dependency installation.
-
-Actions and Releases also provide the standalone recovery assets:
-
-- `endkeep-offline.py`
-- `requirements-offline.txt`
-- `SHA256SUMS`
-
-## Offline verification and restore
-
-**STOP BDS BEFORE RESTORE.**
-
-Restore is intentionally unavailable inside the online plugin.
-
-The standalone tool does not require the EndKeep plugin wheel or Endstone. Create a clean
-Python 3.14 environment and install only the supplied offline requirements:
-
-```bash
-python3.14 -m venv endkeep-offline-env
-endkeep-offline-env/bin/python -m pip install -r requirements-offline.txt
-
-endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo list
-endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo verify
-endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo restore /path/to/new-world
-```
-
-Long-running `verify` and `restore` operations show stage-level tqdm progress by default. Add
-`--verbose` to either command to include object roles, BASE/DELTA details, logical/compressed
-byte counts, state digests, and per-step timings.
-
-To delete a specific committed recovery point or force a new BASE boundary, use the **offline-only**
-standalone CLI with the repository quiescent (stop BDS and EndKeep's worker first):
-
-```bash
-endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo delete 20261006-163000
-endkeep-offline-env/bin/python endkeep-offline.py --repo /path/to/backups/repo rollover 20261006-163000
-```
-
-Both commands acquire the repository lock and require typing `yes` before committing. For
-non-interactive automation, append `--yes`. Deleting a DELTA at the tail removes only that
-snapshot; deleting a middle DELTA synthesizes and verifies a bridge DELTA so later recovery
-points remain usable. Deleting the current BASE materializes the next snapshot as BASE.
-Deleting the only remaining recovery point is refused. `rollover` promotes the selected
-snapshot to BASE and removes all older recovery points from the current manifest.
-
-These operations do not run GC or erase immutable objects. Unreferenced objects are reported
-and can be cleaned during a later scheduled FULL maintenance. Review the plan carefully:
-`rollover` intentionally makes **all earlier recovery points unavailable**.
-
-To restore a specific recovery point:
-
-```bash
-endkeep-offline-env/bin/python endkeep-offline.py \
-  --repo /path/to/backups/repo \
-  restore /path/to/new-world \
-  --snapshot 20261006-163000
-```
-
-The destination world directory must not already exist. EndKeep restores sidecars, streams the
-BASE plus required DELTAs into a **fresh** Amulet LevelDB, closes and reopens it, and verifies the
-expected canonical visible-state SHA256 before reporting success.
-
-A restored LevelDB is not expected to be physically byte-identical to the original database.
-Correctness is defined by identical visible key/value state, matching state SHA256, and
-byte-identical sidecar content.
-
-## Crash-safety model
-
-Key invariants:
-
-- The BDS `save query` manifest is the sole authoritative definition of snapshot files and byte
-  lengths.
-- Every failure after a successful `save hold` attempts `save resume`.
-- Source paths reject absolute paths, `..`, symlink traversal, and non-regular files.
-- Active LevelDB logs are copied only to the byte length reported by BDS.
-- Repository objects are immutable and verified before publication.
-- `HEAD` moves only after all objects and the new generation manifest are durable.
-- Retention/GC happens only after the replacement authoritative state is committed.
-- Repository mutation is serialized by `repo/LOCK`.
-- Startup recovery repairs interrupted generation publication without doing a slow deep scan.
-- Any committed recovery point is designed to be restorable from the repository alone.
-
-## Verification
-
-Daily FULL maintenance performs structural verification: HEAD/manifest consistency, chain shape,
-referenced-object presence and size sanity, orphan detection, and stale-work cleanup.
-
-Manual `/backup verify` uses `verify.mode` from `config.toml`: `normal` performs structural
-verification and `deep` additionally validates immutable object hashes and every retained logical
-state digest. The standalone `endkeep-offline.py verify` remains a deep offline verification tool.
-
-## Limitations and non-goals
-
-EndKeep v1 intentionally does not implement cloud upload, S3/WebDAV/FTP, online restore, GUI,
-player-facing backup commands, TPS/MSPT/player-count guards, a timezone framework, missed-event
-catch-up, physical SST CDC, proactive rebase heuristics, parallel logicalization, or automatic
-repair of arbitrary repository corruption.
-
-The repository should still be copied off-host using an independent operational process if
-machine-level disaster recovery is required.
-
-## Development
-
-```bash
-python3.14 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
-.venv/bin/python -m ruff check src tests tools
-.venv/bin/python -m ruff format --check src tests tools
-.venv/bin/python -m pytest
-.venv/bin/python -m build
-.venv/bin/python tools/build_offline.py --output dist/endkeep-offline.py
-```
-
-The Build workflow additionally creates a clean offline virtual environment that installs only
-`requirements-offline.txt`, then performs repository-only list/verify/restore with the generated
-standalone script.
+- [Using EndKeep](docs/using-endkeep.md) — schedule, commands, configuration and recovery
+- [Storage benchmark](docs/benchmarks/2026-10-storage/benchmark.md) — measurements and source data
+- [Manual validation](docs/manual-validation.md) — production smoke tests
 
 ## License
 
-[MIT License](LICENSE)
+[MIT](LICENSE).
