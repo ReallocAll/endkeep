@@ -41,6 +41,7 @@ See [Using EndKeep](docs/using-endkeep.md) for schedules, configuration and offl
 - **Background processing** — a separate worker process keeps repository work outside Endstone's Python interpreter.
 - **Offline recovery** — list, verify and restore individual snapshots with the standalone recovery tool.
 - **Fail-closed verification** — integrity failures block repository mutations and preserve pending raw snapshots until a deep verification passes.
+- **Optional anonymous usage metrics** — reports to [bStats](https://bstats.org/plugin/bukkit/endkeep/34593) via Endstone's built-in API; controlled by `plugins/bstats/config.toml`.
 
 ## Storage efficiency
 
