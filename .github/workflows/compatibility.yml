@@ -1,0 +1,116 @@
+name: Python and Windows compatibility
+
+on:
+  push:
+    branches: [feat/python312-windows-compat]
+    paths: [.github/workflows/compatibility.yml, .github/scripts/amulet_leveldb_smoke.py, pyproject.toml, 'src/**', 'tests/**', 'tools/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-matrix:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, python: '3.12', wheel: cp312-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.13', wheel: cp313-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.14', wheel: '' }
+          - { os: windows-2025, python: '3.12', wheel: cp312-win_amd64 }
+          - { os: windows-2025, python: '3.13', wheel: cp313-win_amd64 }
+          - { os: windows-2025, python: '3.14', wheel: '' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout EndKeep
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout upstream Amulet 3.0.7a0 at verified commit
+        if: matrix.python != '3.14'
+        uses: actions/checkout@v4
+        with:
+          repository: Amulet-Team/Amulet-LevelDB
+          ref: 736228e375e9f535b6522bd28168fc306a5354b9
+          path: amulet-src
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Patch Amulet Python floor and Windows VS generator
+        if: matrix.python != '3.14'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          project = Path("amulet-src/pyproject.toml")
+          content = project.read_text()
+          needle = 'requires-python = ">=3.14"'
+          assert content.count(needle) == 1
+          project.write_text(content.replace(needle, 'requires-python = ">=3.12"'))
+          import os
+          if os.name == "nt":
+              setup = Path("amulet-src/setup.py")
+              text = setup.read_text()
+              assert text.count("Visual Studio 18 2026") == 1
+              assert text.count("v145") == 1
+              setup.write_text(text.replace("Visual Studio 18 2026", "Visual Studio 17 2022").replace("v145", "v143"))
+          PY
+          cp .github/scripts/amulet_leveldb_smoke.py amulet-src/tests/test_backport_smoke.py
+          git -C amulet-src diff --check
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install cibuildwheel
+        if: matrix.python != '3.14'
+        run: python -m pip install 'cibuildwheel~=4.1'
+      - name: Build and test Amulet wheel
+        if: matrix.python != '3.14'
+        env:
+          CIBW_BEFORE_BUILD: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_BEFORE_TEST: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_TEST_COMMAND: 'python {project}/tests/test_backport_smoke.py && python {project}/tests/test_db.py'
+          CIBW_TEST_SOURCES: tests
+        run: |
+          mkdir -p amulet-dist
+          cd amulet-src
+          python -m cibuildwheel --only '${{ matrix.wheel }}' --output-dir ../amulet-dist .
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Test installed EndKeep with matched Amulet
+        run: |
+          uv venv .venv --python '${{ matrix.python }}'
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            PYTHON=.venv/Scripts/python.exe
+          else
+            PYTHON=.venv/bin/python
+          fi
+          if [[ "${{ matrix.python }}" != "3.14" ]]; then
+            uv pip install --python "$PYTHON" amulet-dist/*.whl
+          fi
+          uv pip install --python "$PYTHON" -e '.[dev]'
+          uv pip check --python "$PYTHON"
+          "$PYTHON" - <<'PY'
+          from importlib.metadata import version
+          from amulet.leveldb import LevelDB
+          assert version("amulet-leveldb").split("+")[0] == "3.0.7a0"
+          print("Amulet:", version("amulet-leveldb"))
+          PY
+          "$PYTHON" -m pytest -q
+      - name: Save tested experimental backports (no Release)
+        if: matrix.python != '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: amulet-compat-${{ matrix.os }}-${{ matrix.python }}
+          path: amulet-dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
