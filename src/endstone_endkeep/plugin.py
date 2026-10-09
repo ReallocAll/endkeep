@@ -711,7 +711,7 @@ class EndKeepPlugin(Plugin):
             sender.send_message("EndKeep repository is empty.")
             return
         sender.send_message(f"EndKeep repository generation {info.get('generation')}: {len(snapshots)} snapshot(s)")
-        for node in snapshots[-20:]:
+        for node in snapshots:
             sender.send_message(
                 f"{node['snapshot']} {str(node['type']).upper()} {node['captured_at']} "
                 f"records={node['records']} state={str(node['state_sha256'])[:12]}"

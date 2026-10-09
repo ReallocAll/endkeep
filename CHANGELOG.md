@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- List all retained recovery points and replace starter-template contributor/issue instructions.
+
+### Documentation
+- Document configuration safety limits, platform validation, recovery format compatibility and security reporting.
+
 ## [0.1.9] - 2026-10-09
 
 ### Added
