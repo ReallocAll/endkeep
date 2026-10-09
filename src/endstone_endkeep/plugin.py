@@ -8,6 +8,7 @@ from endstone.command import Command, CommandSender
 from endstone.plugin import Plugin
 
 from .config import ConfigError, EndKeepConfig, reconcile_config_file
+from .offline.cli import install_server_launcher
 from .coordinator import CaptureCoordinator
 from .scheduler import EndKeepScheduler, ScheduleEvent, SchedulerState
 from .staging.raw import RawSnapshotStore
@@ -66,6 +67,12 @@ class EndKeepPlugin(Plugin):
         except Exception as exc:
             self.logger.critical(f"Failed to enable EndKeep: {exc}")
             return
+
+        try:
+            launcher = install_server_launcher(Path(self.data_folder))
+            self.logger.info(f"Repository CLI available: {launcher}")
+        except OSError as exc:
+            self.logger.warning(f"Could not install repository CLI launcher: {exc}")
 
         self.server.scheduler.run_task(self, self._tick, delay=1, period=1)
         self.logger.info("EndKeep enabled.")
