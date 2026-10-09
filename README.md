@@ -9,11 +9,16 @@ rather than keeping a complete copy of the world each time.
 
 ## Install
 
-**Linux only.** Requires Python 3.14 and Endstone 0.11 (`>=0.11,<0.12`). Validated on Ubuntu 24.04 x86-64.
+**Linux only.** Requires Python 3.14 and Endstone 0.11 (`>=0.11,<0.12`). Validated on a live Bedrock server running **Ubuntu 26.04 LTS x86-64**. Automated CI runs on Ubuntu 24.04; that CI runner is not a second live-server validation environment.
 
 Download the latest [EndKeep release](https://github.com/ReallocAll/endkeep/releases/latest),
 place the `.whl` file in your server's `plugins/` directory, and start the server.
 Endstone installs the plugin dependencies automatically.
+
+The pinned `amulet-leveldb` dependency is a native extension. Installation requires a host that
+can obtain a compatible Python 3.14 wheel; restricted/offline panel hosts may need dependency
+provisioning by their provider. The default configuration also reserves **5 GiB** of free disk
+space (plus room to stage a new snapshot); adjust the reserve for your disk capacity.
 
 ## Quick start
 
@@ -64,4 +69,9 @@ Both series use GiB; the inset shows EndKeep's per-snapshot growth on a zoomed s
 
 ## License
 
-[MIT](LICENSE).
+EndKeep's own source code is licensed under [MIT](LICENSE). Its dependencies have
+separate licenses. In particular, the pinned [Amulet-LevelDB 3.0.7a0](https://github.com/Amulet-Team/Amulet-LevelDB/tree/3.0.7a0)
+uses the [Amulet Team License 1.0.0](https://github.com/Amulet-Team/Amulet-LevelDB/blob/3.0.7a0/LICENSE),
+which includes restrictions on commercial use. The MIT license on EndKeep does **not**
+override the dependency's terms. Review those terms before deployment, particularly
+for commercial servers.
