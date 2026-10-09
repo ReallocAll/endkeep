@@ -12,7 +12,7 @@ from .offline.cli import install_server_launcher
 from .coordinator import CaptureCoordinator
 from .scheduler import EndKeepScheduler, ScheduleEvent, SchedulerState
 from .staging.raw import RawSnapshotStore
-from .worker.client import RepositoryWorkerClient, WorkerError, WorkerTimeout
+from .worker.client import RepositoryWorkerClient, WorkerError, WorkerRequestIndeterminate, WorkerTimeout
 
 
 class EndKeepPlugin(Plugin):
@@ -786,6 +786,9 @@ class EndKeepPlugin(Plugin):
             return
         try:
             accepted = repository.start_mutation(operation, snapshot, expected_generation=expected_generation)
+        except WorkerRequestIndeterminate as exc:
+            sender.send_error_message(str(exc))
+            return
         except Exception as exc:
             sender.send_error_message(f"Failed to start {operation}: {exc}")
             return
@@ -808,6 +811,9 @@ class EndKeepPlugin(Plugin):
             return
         try:
             accepted = repository.start_export(snapshot)
+        except WorkerRequestIndeterminate as exc:
+            sender.send_error_message(str(exc))
+            return
         except Exception as exc:
             sender.send_error_message(f"Failed to start export: {exc}")
             return
