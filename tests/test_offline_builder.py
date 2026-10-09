@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from endstone_endkeep.offline.cli import _default_repository, build_parser
+from endstone_endkeep.offline.cli import _default_repository, _new_progress_bar, build_parser, install_server_launcher
 
 
 def test_generated_offline_script_is_self_contained(tmp_path: Path) -> None:
@@ -67,3 +67,26 @@ def test_cli_discovers_configured_repository(tmp_path: Path, monkeypatch: pytest
     plugin_config.write_text(f'[storage]\npath = "{tmp_path / "absolute"}"\n', encoding="utf-8")
     assert _default_repository() == tmp_path / "absolute" / "repo"
     assert build_parser().parse_args(["--repo", "manual/repo", "list"]).repo == Path("manual/repo")
+
+
+def test_server_local_cli_launcher_uses_package_location(tmp_path: Path) -> None:
+    launcher = install_server_launcher(tmp_path / "plugins" / "endkeep")
+    assert launcher.is_file()
+    assert launcher.stat().st_mode & 0o111
+    completed = subprocess.run(
+        [str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "EndKeep repository" in completed.stdout
+
+
+def test_progress_requires_only_standard_library(capsys: pytest.CaptureFixture[str]) -> None:
+    from endstone_endkeep.offline import cli
+
+    assert "tqdm" not in Path(cli.__file__).read_text(encoding="utf-8")
+    assert "tqdm" not in Path("requirements-offline.txt").read_text(encoding="utf-8")
+    bar = _new_progress_bar(total=2, desc="Checking", unit="obj")
+    bar.update(1)
+    bar.update(1)
+    bar.close()
+    assert "Checking: 2/2 obj" in capsys.readouterr().err
