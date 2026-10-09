@@ -667,7 +667,8 @@ def install_server_launcher(data_folder: Path) -> Path:
     script = data_folder / "endkeep"
     temporary = data_folder / ".endkeep.tmp"
     site_root = Path(__file__).resolve().parents[2]
-    python = Path(sys.executable).resolve()
+    # Keep the virtualenv launcher path; resolving symlinks can escape its site-packages.
+    python = sys.executable
     contents = (
         f"#!{python}\n"
         "import sys\n"
