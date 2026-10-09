@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
 ### Added
 - Support Python 3.12–3.14 on Linux and Windows x86-64.
 - Automatically resolve pinned Amulet-LevelDB compatibility Wheels for Python 3.12/3.13.
