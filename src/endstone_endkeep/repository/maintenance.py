@@ -190,6 +190,8 @@ class RepositoryService:
                 raise RuntimeError(
                     f"repository changed since preview: generation {manifest.generation} != {expected_generation}"
                 )
+            # A previous interrupted commit may have left unpublished generation files.
+            self.manifests.discard_unpublished()
             self.tracker.update(stage="Rewrite", detail=f"{operation} {snapshot}", cancelable=False)
             mutator = SnapshotMutator(self.manifests, self.objects)
             updated = (
@@ -209,7 +211,7 @@ class RepositoryService:
         if self._closed or self.busy:
             return False
         # Never accept a destination path from an in-game command.
-        if not re.fullmatch(r"[0-9]{8}-[0-9]{6}", snapshot):
+        if not re.fullmatch(r"[0-9]{8}-[0-9]{6}(?:-[0-9]{2})?", snapshot):
             raise ValueError("export requires an exact snapshot ID (YYYYMMDD-HHMMSS)")
         accepted = self._submit("export", ("Restore", "Finalize"), self._run_export, snapshot)
         self.tracker.update(cancelable=False)
@@ -221,22 +223,65 @@ class RepositoryService:
         exports = self.storage_root / "exports"
         if exports.is_symlink():
             raise ValueError("export directory must not be a symbolic link")
+        export_root = exports.resolve()
+        requested_destination = exports / snapshot
+        if requested_destination.is_symlink():
+            raise ValueError("export destination must not be a symbolic link")
+        destination = requested_destination.resolve()
+        if destination.parent != export_root:
+            raise ValueError("export destination must remain inside the exports directory")
         # An export must never touch the currently running Bedrock world.
         world_root = (Path.cwd() / "worlds").resolve()
-        destination = (exports / snapshot).resolve()
         if destination == world_root or world_root in destination.parents:
             raise ValueError("export destination is inside active worlds directory")
         if destination.exists():
             raise FileExistsError(f"export already exists: {destination}")
+
+        def preflight(node) -> None:
+            # Fresh LevelDB construction may temporarily require extra space for
+            # log/SST files and compaction. Deliberately use a conservative bound.
+            estimate = 2 * (node.value_bytes + node.records * 128) + 256 * 1024**2
+            required = self.queue.min_free_bytes + estimate
+            available = shutil.disk_usage(self.storage_root).free
+            if available < required:
+                raise RuntimeError(
+                    f"insufficient free space for export: available={available} required={required} "
+                    f"(includes configured reserve of {self.queue.min_free_bytes} bytes)"
+                )
+
+        def space_guard() -> None:
+            available = shutil.disk_usage(self.storage_root).free
+            if available < self.queue.min_free_bytes + 64 * 1024**2:
+                raise RuntimeError("export stopped to protect the configured free-space reserve")
+
+        def progress(current: int, total: int) -> None:
+            self.tracker.update(
+                stage="Restore",
+                snapshot=snapshot,
+                current=current,
+                total=total,
+                unit="records",
+                detail="rebuilding a separate LevelDB",
+                cancelable=False,
+            )
+
         self.tracker.update(
             stage="Restore",
             snapshot=snapshot,
             detail="verifying and rebuilding a separate world",
             cancelable=False,
         )
-        # command_restore locks the repository, verifies dependencies and restored state,
-        # and deletes a partial export if recovery fails. No BDS API or active world is used.
-        command_restore(self.repo_root, destination, snapshot, show_progress=False)
+        # The shared restore owns the repository lock and verifies the restored
+        # state digest; failures remove the newly created destination.
+        command_restore(
+            self.repo_root,
+            destination,
+            snapshot,
+            show_progress=False,
+            preflight=preflight,
+            space_guard=space_guard,
+            progress=progress,
+        )
         self.tracker.update(stage="Finalize", detail="export complete", cancelable=False)
         return RepositoryJobResult(kind="export", export={"snapshot": snapshot, "destination": str(destination)})
 
