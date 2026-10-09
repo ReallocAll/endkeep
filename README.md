@@ -2,77 +2,73 @@
 
 [![Build](https://github.com/ReallocAll/endkeep/actions/workflows/build.yml/badge.svg)](https://github.com/ReallocAll/endkeep/actions/workflows/build.yml)
 
-EndKeep is a crash-safe, incremental world backup plugin for
-[Endstone](https://github.com/EndstoneMC/endstone) and Minecraft Bedrock Dedicated Server.
-It captures online recovery points and stores changes to the *logical* LevelDB state,
-rather than keeping a complete copy of the world each time.
+EndKeep is an incremental world backup plugin for [Endstone](https://github.com/EndstoneMC/endstone).
+It backs up Minecraft Bedrock worlds while the server is running, keeps recovery points
+without storing a complete world copy each time, and lets you restore an earlier version.
 
-## Install
+## Installation
 
-**Linux only.** Requires Python 3.14 and Endstone 0.11 (`>=0.11,<0.12`). Validated on a live Bedrock server running **Ubuntu 26.04 LTS x86-64**. Automated CI runs on Ubuntu 24.04; that CI runner is not a second live-server validation environment.
+Requires **Linux**, **Python 3.14** and **Endstone 0.11**. Tested on Ubuntu 26.04 LTS (x86-64).
 
-Download the latest [EndKeep release](https://github.com/ReallocAll/endkeep/releases/latest),
-place the `.whl` file in your server's `plugins/` directory, and start the server.
-Endstone installs the plugin dependencies automatically.
+1. Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
+2. Place it in your server's `plugins/` directory.
+3. Restart the server. Endstone installs the required Python packages automatically.
 
-The pinned `amulet-leveldb` dependency is a native extension. Installation requires a host that
-can obtain a compatible Python 3.14 wheel; restricted/offline panel hosts may need dependency
-provisioning by their provider. The default configuration also reserves **5 GiB** of free disk
-space (plus room to stage a new snapshot); adjust the reserve for your disk capacity.
+The server needs internet access and compatible dependency packages for the initial installation.
+See [Using EndKeep](docs/using-endkeep.md) for details.
 
 ## Quick start
 
-EndKeep creates recovery points automatically. Use the server console or an operator account to check them:
+Run these commands in the server console or as an operator:
 
 ```text
 /backup status
-/backup list
 /backup create
+/backup list
 ```
 
-`/backup create` captures a recovery point; repository processing runs later during maintenance.
-See [Using EndKeep](docs/using-endkeep.md) for schedules, configuration and offline restore.
+`/backup create` takes a snapshot. EndKeep processes pending snapshots during
+maintenance, which can also be started manually with `/backup maintenance`.
+Automatic backups are enabled by default.
 
 ## Features
 
-- **Online snapshots** — short `save hold/query/resume` captures; heavier work runs after saving resumes.
-- **Logical incremental storage** — one BASE followed by semantic DELTAs of visible LevelDB key/value data.
-- **Crash-safe repository** — immutable compressed objects and atomic manifest publication.
-- **Background processing** — a separate worker process keeps repository work outside Endstone's Python interpreter.
-- **Offline recovery** — list, verify and restore individual snapshots with the standalone recovery tool.
-- **Fail-closed verification** — integrity failures block repository mutations and preserve pending raw snapshots until a deep verification passes.
-- **Optional anonymous usage metrics** — reports to [bStats](https://bstats.org/plugin/bukkit/endkeep/34593) via Endstone's built-in API; controlled by `plugins/bstats/config.toml`.
+- **Online backups** — capture snapshots without shutting down your server.
+- **Incremental storage** — save changes between recovery points to reduce disk usage.
+- **Scheduled backups** — set backup times, retention and maintenance in a configuration file.
+- **Verification** — check that stored recovery points can be read correctly.
+- **Restore and export** — recover a world even when the server cannot start.
 
 ## Storage efficiency
 
-In a 54-hour live-server test, EndKeep stored **14 recovery points** using **92.67% less space**
-than 14 separately compressed full-world backups.
-
-| 14 recovery points | Storage |
-| --- | ---: |
-| Independent full backups (TAR + Zstd-6) | 7.40 GiB |
-| **EndKeep** (1 BASE + 13 DELTAs) | **0.54 GiB** |
+In one 54-hour server test, **14 recovery points used 0.54 GiB** with EndKeep,
+compared with **7.40 GiB** for 14 individually compressed full backups
+(92.67% less storage). Savings depend on world activity and backup history.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/benchmarks/2026-10-storage/cumulative-storage-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/benchmarks/2026-10-storage/cumulative-storage.svg">
-  <img src="docs/benchmarks/2026-10-storage/cumulative-storage.svg" alt="Fourteen Bedrock recovery points: independently compressed full backups reach 7.40 GiB while EndKeep uses about 0.54 GiB, with an inset showing EndKeep's per-snapshot growth.">
+  <img src="docs/benchmarks/2026-10-storage/cumulative-storage.svg" alt="Storage used by 14 EndKeep recovery points compared with independent compressed full backups.">
 </picture>
 
-Both series use GiB; the inset shows EndKeep's per-snapshot growth on a zoomed scale.
-[Benchmark methodology and data](docs/benchmarks/2026-10-storage/benchmark.md).
+[Benchmark results and methodology](docs/benchmarks/2026-10-storage/benchmark.md)
 
 ## Documentation
 
-- [Using EndKeep](docs/using-endkeep.md) — schedule, commands, configuration and recovery
-- [Storage benchmark](docs/benchmarks/2026-10-storage/benchmark.md) — measurements and source data
-- [Manual validation](docs/manual-validation.md) — production smoke tests
+For server owners:
+
+- [Using EndKeep](docs/using-endkeep.md) — commands and everyday backup management
+- [Configuration](docs/configuration.md) — schedules, storage and retention
+- [Recovery](docs/recovery.md) — export and offline restore
+
+For contributors:
+
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
-EndKeep's own source code is licensed under [MIT](LICENSE). Its dependencies have
-separate licenses. In particular, the pinned [Amulet-LevelDB 3.0.7a0](https://github.com/Amulet-Team/Amulet-LevelDB/tree/3.0.7a0)
-uses the [Amulet Team License 1.0.0](https://github.com/Amulet-Team/Amulet-LevelDB/blob/3.0.7a0/LICENSE),
-which includes restrictions on commercial use. The MIT license on EndKeep does **not**
-override the dependency's terms. Review those terms before deployment, particularly
-for commercial servers.
+EndKeep's source code is [MIT licensed](LICENSE). Its dependencies have separate
+terms. In particular, [Amulet-LevelDB](https://github.com/Amulet-Team/Amulet-LevelDB/blob/3.0.7a0/LICENSE)
+has restrictions affecting some commercial uses. Check the dependency license
+before using EndKeep on a commercial server.
