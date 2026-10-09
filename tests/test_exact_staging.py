@@ -55,3 +55,21 @@ def test_reject_source_symlink(tmp_path: Path) -> None:
     )
     with pytest.raises(ExactStageError):
         stage_manifest(source, tmp_path / "stage", manifest)
+
+
+def test_reject_escaping_manifest_before_creating_directories(tmp_path: Path) -> None:
+    source = tmp_path / "worlds"
+    malicious = PurePosixPath("level/../../outside-created/level.dat")
+    manifest = SnapshotManifest("level", (SnapshotEntry(malicious, 1),))
+    with pytest.raises(ExactStageError, match="unsafe snapshot path"):
+        stage_manifest(source, tmp_path / "stage", manifest)
+    assert not (tmp_path / "outside-created").exists()
+    assert not (tmp_path / "stage").exists()
+
+
+@pytest.mark.parametrize("path", [r"level\\..\\elsewhere\\level.dat", "level/C:/outside/level.dat", "other/level.dat"])
+def test_reject_nonportable_or_foreign_world_paths_before_staging(tmp_path: Path, path: str) -> None:
+    manifest = SnapshotManifest("level", (SnapshotEntry(PurePosixPath(path), 1),))
+    with pytest.raises(ExactStageError):
+        stage_manifest(tmp_path / "worlds", tmp_path / "stage", manifest)
+    assert not (tmp_path / "stage").exists()
