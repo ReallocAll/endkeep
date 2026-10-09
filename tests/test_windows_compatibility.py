@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -67,3 +68,21 @@ def test_binary_staging_and_clone_are_byte_exact(tmp_path: Path) -> None:
     )
     stage_manifest(source, tmp_path / "stage", manifest)
     assert (tmp_path / "stage" / "level" / "db" / "000004.ldb").read_bytes() == payload
+
+
+def test_worker_process_liveness_tracks_real_exit() -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"],
+        stdin=subprocess.PIPE,
+    )
+    try:
+        assert RepositoryWorkerClient._pid_alive(process.pid)
+        assert process.stdin is not None
+        process.stdin.write(b"x")
+        process.stdin.close()
+        assert process.wait(timeout=5) == 0
+        assert not RepositoryWorkerClient._pid_alive(process.pid)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)

@@ -109,3 +109,57 @@ jobs:
           path: amulet-dist/*.whl
           if-no-files-found: error
           retention-days: 7
+
+  verified-backports:
+    name: Collect verified CPython 3.12/3.13 Wheels
+    needs: full-matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download four tested wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: amulet-compat-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate Wheels and create SHA256 manifest
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          root = Path("dist")
+          wheels = sorted(root.glob("*.whl"))
+          assert len(wheels) == 4, [p.name for p in wheels]
+          for abi in ("cp312", "cp313"):
+              for platform in ("manylinux_", "win_amd64"):
+                  matches = [
+                      p for p in wheels
+                      if f"-{abi}-{abi}-" in p.name and platform in p.name
+                  ]
+                  assert len(matches) == 1, (abi, platform, [p.name for p in wheels])
+          for wheel in wheels:
+              with ZipFile(wheel) as archive:
+                  meta = next(path for path in archive.namelist() if path.endswith(".dist-info/METADATA"))
+                  data = archive.read(meta).decode("utf-8")
+                  assert "Name: amulet-leveldb" in data
+                  assert "Version: 3.0.7a0+0.g736228e.dirty" in data
+                  assert "Requires-Python: >=3.12" in data
+                  assert any(path.endswith(".dist-info/licenses/LICENSE") for path in archive.namelist())
+          (root / "SHA256SUMS").write_text("".join(
+              f"{sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+              for path in wheels
+          ))
+          print((root / "SHA256SUMS").read_text())
+          PY
+
+      - name: Upload verified wheel set for review (not a GitHub Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: amulet-backports-verified-four-wheels
+          path: |
+            dist/*.whl
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14

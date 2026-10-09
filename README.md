@@ -8,7 +8,12 @@ without storing a complete world copy each time, and lets you restore an earlier
 
 ## Installation
 
-Requires **Linux**, **Python 3.14** and **Endstone 0.11**. Tested on Ubuntu 26.04 LTS (x86-64).
+**Current public releases** require Linux x86-64, Python 3.14 and Endstone 0.11;
+tested on Ubuntu 26.04 LTS. Development CI for the next version also covers
+Linux/Windows x86-64 with Python 3.12–3.14. The Python 3.12/3.13 builds require
+compatibility Wheels of Amulet-LevelDB that have not been published yet.
+Do not install a development build on a production server without the
+platform-specific dependency and backup/restore validation.
 
 1. Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
 2. Place it in your server's `plugins/` directory.
