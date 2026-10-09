@@ -19,3 +19,6 @@ def test_main_release_commit_can_tag_and_publish() -> None:
     assert 'SUBJECT="$(git log -1 --pretty=%s)"' in workflow
     assert "TAG_NEEDED=true" in workflow
     assert 'git push origin "refs/tags/v$VERSION"' in workflow
+    assert "git tag --force" not in workflow
+    assert "git push --force origin" not in workflow
+    assert "Refusing to move existing release tag" in workflow
