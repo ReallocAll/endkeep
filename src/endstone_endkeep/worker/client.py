@@ -108,7 +108,11 @@ class RepositoryWorkerClient:
             "stdin": subprocess.DEVNULL,
             "close_fds": True,
         }
-        kwargs["start_new_session"] = True
+        if os.name == "nt":
+            # Use a process group on Windows; start_new_session is POSIX-only.
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
 
         log_path = storage_root / "worker.log"
         with log_path.open("ab", buffering=0) as log:
@@ -153,6 +157,31 @@ class RepositoryWorkerClient:
     def _pid_alive(pid: int) -> bool:
         if pid <= 0:
             return False
+        if os.name == "nt":
+            # os.kill(pid, 0) calls TerminateProcess on Windows: never use it
+            # for liveness checks. Denied process access is treated as alive,
+            # avoiding a second writer to an active repository.
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+            kernel32.WaitForSingleObject.restype = wintypes.DWORD
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+
+            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not handle:
+                return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: PID absent
+            try:
+                # WAIT_OBJECT_0 means exited; WAIT_TIMEOUT means still active.
+                # Treat WAIT_FAILED as alive to preserve single-writer safety.
+                return kernel32.WaitForSingleObject(handle, 0) != 0
+            finally:
+                kernel32.CloseHandle(handle)
+
         try:
             os.kill(pid, 0)
         except ProcessLookupError:

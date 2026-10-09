@@ -68,7 +68,7 @@ def clone_world(
             for dirname in dirnames:
                 child = current_path / dirname
                 info = child.lstat()
-                if stat.S_ISLNK(info.st_mode):
+                if stat.S_ISLNK(info.st_mode) or (os.name == "nt" and child.is_junction()):
                     raise CloneError(f"raw snapshot contains directory symlink: {child}")
 
             for filename in filenames:

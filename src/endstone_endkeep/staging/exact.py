@@ -72,7 +72,7 @@ def _open_source_portable(root: Path, relative: PurePosixPath) -> int:
         for component in relative.parts:
             current = current / component
             info = current.lstat()
-            if stat.S_ISLNK(info.st_mode):
+            if stat.S_ISLNK(info.st_mode) or (os.name == "nt" and current.is_junction()):
                 raise ExactStageError(f"source path contains a symlink: {relative}")
         resolved = candidate.resolve(strict=True)
     except OSError as exc:

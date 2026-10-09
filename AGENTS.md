@@ -1,8 +1,8 @@
 # Working on EndKeep
 
 EndKeep is a Python plugin for Endstone that creates incremental backups of
-Minecraft Bedrock worlds. This repository targets Linux, Python 3.14 and
-Endstone 0.11. For Endstone API usage, see [Endstone's documentation](https://endstone.dev/).
+Minecraft Bedrock worlds. This repository targets Python 3.12–3.14 on Linux and Windows x86-64
+(Windows support is in progress) with Endstone 0.11. For Endstone API usage, see [Endstone's documentation](https://endstone.dev/).
 
 ## Project layout
 
