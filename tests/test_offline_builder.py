@@ -73,9 +73,7 @@ def test_server_local_cli_launcher_uses_package_location(tmp_path: Path) -> None
     launcher = install_server_launcher(tmp_path / "plugins" / "endkeep")
     assert launcher.is_file()
     assert launcher.stat().st_mode & 0o111
-    completed = subprocess.run(
-        [str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, check=False
-    )
+    completed = subprocess.run([str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stderr
     assert "EndKeep repository" in completed.stdout
 
