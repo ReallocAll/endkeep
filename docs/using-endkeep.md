@@ -35,12 +35,12 @@ Commands require `endkeep.admin` (operator/console by default).
 
 To delete or roll over, run `/backup delete <id>` or `/backup rollover <id>`
 to inspect the impact, followed by **`/backup confirm`** to commit. Previews are
-remembered separately for each command sender, with no timeout. A new preview
-replaces the previous one. Confirming after the repository generation changes
-reports the mismatch and requires a fresh preview. Restarting or reloading
-EndKeep invalidates previous previews and produces an explicit restart message
-for a pending confirmation. Worker-side generation checks still run under the
-repository lock to reject concurrent changes.
+held only in plugin memory, separately for each command sender, with no timeout.
+A new preview replaces the previous one. If the repository generation changes,
+confirmation rejects the stale preview and requires a fresh preview. Restarting
+or reloading the plugin clears all pending previews; `/backup confirm` then
+reports that no preview is pending. No confirmation state is written to disk.
+The worker also checks the generation under the repository lock.
 
 Mutations never run concurrently with maintenance and do not immediately reclaim
 orphan objects; scheduled full maintenance handles garbage collection.
@@ -57,21 +57,21 @@ backup; do not use the raw queue as your only recovery copy.
 
 ## Wheel CLI
 
-The installed wheel exposes a standard `endkeep` console entry point when
-installed with pip. Endstone normally installs plugin wheels under its private
-`plugins/.local` prefix instead of the server environment, so starting EndKeep
-also creates an executable launcher at `plugins/endkeep/endkeep`.
+The wheel exposes a standard `endkeep` console entry point if installed
+normally into a Python environment. Endstone's private plugin-wheel installation
+does **not** create an additional launcher in `plugins/endkeep/`. To run the
+wheel CLI separately, install the wheel into the CLI's Python environment and
+run `endkeep list` (or provide `--repo`). By default the CLI discovers the
+repository from `plugins/endkeep/config.toml` in the BDS working directory.
 
-From the BDS working directory, run `./plugins/endkeep/endkeep list` (or
-`./plugins/endkeep/endkeep verify`). The launcher uses the server's Python and
-the Endstone-managed plugin location; no separate installation or Python path
-configuration is required. The CLI reads `plugins/endkeep/config.toml` to find
-the repository, and `--repo` remains available for explicit paths.
-
-The wheel and standalone CLI display progress using Python's standard library;
-neither requires `tqdm`. For live mutations or exports, **prefer `/backup`**
-commands, which coordinate jobs through the worker. Do not run direct CLI
-mutations while the server or worker may be writing to the repository.
+The CLI's verification and restore progress bars use `tqdm`, as does the
+standalone `endkeep-offline.py` tool. Install the packages listed in
+`requirements-offline.txt` for the standalone tool; the wheel's CLI needs
+`tqdm` available when running progress-displaying operations. The **online**
+`/backup` commands and repository worker do not require `tqdm`. For live
+mutations or exports, prefer `/backup`, which coordinates jobs through the
+worker. Do not run direct CLI mutations while the server or worker may be
+writing to the repository.
 
 ## Offline restore
 
