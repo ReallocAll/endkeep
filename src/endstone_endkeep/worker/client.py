@@ -256,6 +256,11 @@ class RepositoryWorkerClient:
         self._status = response["status"]
         return bool(response["accepted"])
 
+    def start_export(self, snapshot: str) -> bool:
+        response = self._rpc({"command": "start_export", "snapshot": snapshot})
+        self._status = response["status"]
+        return bool(response["accepted"])
+
     def start_pre_capture(
         self,
         *,

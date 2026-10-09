@@ -99,6 +99,12 @@ class WorkerApplication:
                     int(request.get("expected_generation")),
                 )
                 return {"ok": True, "accepted": accepted, "status": self._status_locked()}
+            if command == "start_export":
+                if not self._ready_for_new_job_locked():
+                    return {"ok": True, "accepted": False, "status": self._status_locked()}
+                service = self._require_service()
+                accepted = service.start_export(str(request.get("snapshot")))
+                return {"ok": True, "accepted": accepted, "status": self._status_locked()}
             if command == "start_pre_capture":
                 if not self._ready_for_new_job_locked():
                     return {"ok": True, "accepted": False, "status": self._status_locked()}

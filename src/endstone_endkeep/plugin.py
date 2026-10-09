@@ -29,6 +29,7 @@ class EndKeepPlugin(Plugin):
                 "/backup (maintenance)<action: EndKeepMaintenanceAction> (full)[mode: EndKeepMaintenanceMode]",
                 "/backup (delete|rollover)<action: EndKeepMutationAction> <snapshot: str> "
                 "(confirm)[approval: EndKeepMutationApproval] [generation: int]",
+                "/backup (export)<action: EndKeepExportAction> <snapshot: str>",
             ],
             "permissions": ["endkeep.admin"],
         }
@@ -113,6 +114,11 @@ class EndKeepPlugin(Plugin):
                 sender, action, args[1],
                 expected_generation=int(args[3]) if len(args) == 4 else None,
             )
+            return True
+        if action == "export":
+            if len(args) != 2:
+                return False
+            self._command_export(sender, args[1])
             return True
         if action == "cancel":
             self._command_cancel(sender)
@@ -501,6 +507,15 @@ class EndKeepPlugin(Plugin):
                 )
             return
 
+        if kind == "export":
+            summary = result.get("export")
+            if isinstance(summary, dict):
+                self.logger.info(
+                    f"Repository export complete: snapshot={summary.get('snapshot')} "
+                    f"destination={summary.get('destination')}"
+                )
+            return
+
         if kind == "verify":
             report = result.get("verify")
             if isinstance(report, dict):
@@ -775,6 +790,28 @@ class EndKeepPlugin(Plugin):
         sender.send_message(
             f"{operation} accepted for {snapshot} (expected generation {expected_generation}). "
             "Check /backup status and server logs for completion."
+        )
+
+    def _command_export(self, sender: CommandSender, snapshot: str) -> None:
+        repository = self._repository
+        capture = self._capture
+        if repository is None or capture is None:
+            sender.send_error_message("EndKeep repository service is unavailable.")
+            return
+        if capture.busy or self._pending_capture:
+            sender.send_error_message("Cannot export while capture is active or pending.")
+            return
+        try:
+            accepted = repository.start_export(snapshot)
+        except Exception as exc:
+            sender.send_error_message(f"Failed to start export: {exc}")
+            return
+        if not accepted:
+            sender.send_error_message("EndKeep repository is busy.")
+            return
+        sender.send_message(
+            f"Export accepted: {snapshot}. Output: {self._storage_root / 'exports' / snapshot}. "
+            "Use /backup status to monitor; check server logs for completion."
         )
 
     def _command_cancel(self, sender: CommandSender) -> None:

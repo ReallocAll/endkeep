@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -198,6 +199,41 @@ class RepositoryService:
                 "base": updated.chain[0].snapshot,
             }
         return RepositoryJobResult(kind="mutation", mutation=result)
+
+    def start_export(self, snapshot: str) -> bool:
+        if self._closed or self.busy:
+            return False
+        # Never accept a destination path from an in-game command.
+        if not re.fullmatch(r"[0-9]{8}-[0-9]{6}", snapshot):
+            raise ValueError("export requires an exact snapshot ID (YYYYMMDD-HHMMSS)")
+        accepted = self._submit("export", ("Restore", "Finalize"), self._run_export, snapshot)
+        self.tracker.update(cancelable=False)
+        return accepted
+
+    def _run_export(self, snapshot: str) -> RepositoryJobResult:
+        from endstone_endkeep.offline.cli import command_restore
+
+        exports = self.storage_root / "exports"
+        if exports.is_symlink():
+            raise ValueError("export directory must not be a symbolic link")
+        # An export must never touch the currently running Bedrock world.
+        world_root = (Path.cwd() / "worlds").resolve()
+        destination = (exports / snapshot).resolve()
+        if destination == world_root or world_root in destination.parents:
+            raise ValueError("export destination is inside active worlds directory")
+        if destination.exists():
+            raise FileExistsError(f"export already exists: {destination}")
+        self.tracker.update(
+            stage="Restore", snapshot=snapshot,
+            detail="verifying and rebuilding a separate world", cancelable=False,
+        )
+        # command_restore locks the repository, verifies dependencies and restored state,
+        # and deletes a partial export if recovery fails. No BDS API or active world is used.
+        command_restore(self.repo_root, destination, snapshot, show_progress=False)
+        self.tracker.update(stage="Finalize", detail="export complete", cancelable=False)
+        return RepositoryJobResult(
+            kind="export", export={"snapshot": snapshot, "destination": str(destination)}
+        )
 
     def request_cancel(self) -> bool:
         if self._closed or not self.busy:
