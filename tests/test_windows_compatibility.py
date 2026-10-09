@@ -47,3 +47,22 @@ def test_windows_junctions_cannot_escape_staging_or_clone(tmp_path: Path) -> Non
         stage_manifest(tmp_path / "worlds", tmp_path / "stage", manifest)
     with pytest.raises(CloneError):
         clone_world(tmp_path / "worlds", "level", tmp_path / "work", "snapshot")
+
+def test_binary_staging_and_clone_are_byte_exact(tmp_path: Path) -> None:
+    # LevelDB contains arbitrary binary bytes; Windows CRT text mode may
+    # truncate at Ctrl-Z or change CRLF unless O_BINARY is explicit.
+    source = tmp_path / "source"
+    source_file = source / "level" / "db" / "000004.ldb"
+    source_file.parent.mkdir(parents=True)
+    payload = bytes(range(256)) * 2 + b"\r\n\x1a\x00\xff"
+    source_file.write_bytes(payload)
+
+    clone = clone_world(source, "level", tmp_path / "work", "snapshot")
+    assert (clone / "db" / "000004.ldb").read_bytes() == payload
+
+    manifest = SnapshotManifest(
+        "level",
+        (SnapshotEntry(PurePosixPath("level/db/000004.ldb"), len(payload)),),
+    )
+    stage_manifest(source, tmp_path / "stage", manifest)
+    assert (tmp_path / "stage" / "level" / "db" / "000004.ldb").read_bytes() == payload

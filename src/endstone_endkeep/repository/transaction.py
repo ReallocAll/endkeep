@@ -47,7 +47,7 @@ class RepositoryTransaction:
 
     @staticmethod
     def _write_fsync(path: Path, payload: bytes) -> None:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
         try:
             view = memoryview(payload)
             while view:

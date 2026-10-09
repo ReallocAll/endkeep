@@ -91,7 +91,7 @@ class RawSnapshotStore:
             "total_bytes": staged.manifest.total_bytes,
         }
         metadata_path = staged.incoming_path / "snapshot.json"
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
         fd = os.open(metadata_path, flags, 0o600)
         try:
             payload = (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode()

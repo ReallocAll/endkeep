@@ -79,7 +79,7 @@ def _open_source_portable(root: Path, relative: PurePosixPath) -> int:
         raise ExactStageError(f"cannot inspect source {relative}: {exc}") from exc
     if resolved != root_resolved and root_resolved not in resolved.parents:
         raise ExactStageError(f"source escapes world root: {relative}")
-    return os.open(resolved, os.O_RDONLY)
+    return os.open(resolved, os.O_RDONLY | getattr(os, "O_BINARY", 0))
 
 
 def _open_source(root: Path, relative: PurePosixPath) -> int:
@@ -170,7 +170,7 @@ def stage_manifest(
                         f"{source_info.st_size} < {entry.snapshot_bytes}"
                     )
 
-                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
                 dst_fd = os.open(target, flags, 0o600)
                 try:
                     _copy_bounded(src_fd, dst_fd, entry.snapshot_bytes, cancel)

@@ -139,7 +139,7 @@ class StartupRecovery:
         self.manifests.repo_root.mkdir(parents=True, exist_ok=True)
         part = self.manifests.repo_root / "HEAD.recovery.part"
         part.unlink(missing_ok=True)
-        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
         try:
             payload = f"{generation}\n".encode("ascii")
             os.write(fd, payload)
