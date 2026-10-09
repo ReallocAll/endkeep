@@ -1,11 +1,8 @@
-# Contributing to EndKeep
+# Contributing
 
-EndKeep protects Minecraft Bedrock server world data. Changes to repository formats,
-capture, retention or restore require regression tests and restore validation.
+Bug reports, fixes and documentation improvements are welcome.
 
-## Development
-
-Linux, Python 3.14 and Endstone 0.11 are currently supported.
+EndKeep targets Linux, Python 3.14 and Endstone 0.11. To work on the project:
 
 ```sh
 git clone https://github.com/ReallocAll/endkeep.git
@@ -16,8 +13,9 @@ uv run ruff format --check src tests tools
 uv run pytest
 ```
 
-Create a branch, document any data-safety implications, add tests (including
-interrupted writes when relevant), update `CHANGELOG.md` and open a PR.
+Open a pull request with a short explanation of the change and tests for
+new behavior. Changes affecting backups or recovery should also be exercised
+on a disposable repository; see [Release checks](docs/manual-validation.md).
 
-Report bugs through [EndKeep Issues](https://github.com/ReallocAll/endkeep/issues).
-Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+For bugs, use [GitHub Issues](https://github.com/ReallocAll/endkeep/issues).
+For security reports, see [SECURITY.md](SECURITY.md).
