@@ -9,9 +9,11 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+import endstone_endkeep.offline.cli as offline_cli
 from endstone_endkeep.bds.model import SnapshotEntry, SnapshotManifest
 from endstone_endkeep.staging.clone import CloneError, clone_world
 from endstone_endkeep.staging.exact import ExactStageError, stage_manifest
+from endstone_endkeep.staging.raw import RawSnapshotStore
 from endstone_endkeep.worker.client import RepositoryWorkerClient
 
 
@@ -86,3 +88,17 @@ def test_worker_process_liveness_tracks_real_exit() -> None:
         if process.poll() is None:
             process.terminate()
             process.wait(timeout=5)
+
+
+@pytest.mark.parametrize("sync_tree", [offline_cli._fsync_tree, RawSnapshotStore._fsync_tree])
+def test_backup_file_flush_failure_is_fatal_on_every_platform(tmp_path: Path, monkeypatch, sync_tree) -> None:
+    root = tmp_path / "world"
+    root.mkdir()
+    (root / "level.dat").write_bytes(b"data")
+
+    def fail_fsync(_fd: int) -> None:
+        raise OSError("injected file flush failure")
+
+    monkeypatch.setattr(os, "fsync", fail_fsync)
+    with pytest.raises(OSError, match="injected file flush failure"):
+        sync_tree(root)
