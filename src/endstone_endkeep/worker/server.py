@@ -274,6 +274,7 @@ class WorkerApplication:
 
     def _status_locked(self, *, include_repository: bool = False) -> dict[str, Any]:
         service = self.service
+        health = getattr(service, "health", None)
         status = {
             "worker": {
                 "pid": os.getpid(),
@@ -285,7 +286,7 @@ class WorkerApplication:
             "current_request_id": self._current_request_id_locked(),
             "settings_deferred": self.pending_settings is not None,
             "pending_results": len(self.results),
-            "health": service.health.status() if service is not None else {"status": "UNAVAILABLE", "reason": None},
+            "health": health.status() if health is not None else {"status": "UNAVAILABLE", "reason": None},
         }
         if include_repository:
             status["repository"] = self._repository_status_locked()
