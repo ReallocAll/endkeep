@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .gc import GcResult, collect_orphan_objects
+from .health import RepositoryHealth
 from .lock import RepositoryLock
 from .logicalize import Logicalizer, LogicalizeResult
 from .manifest import ManifestStore
@@ -71,6 +72,7 @@ class RepositoryService:
     ) -> None:
         self.storage_root = storage_root
         self.repo_root = storage_root / "repo"
+        self.health = RepositoryHealth(storage_root)
         self.logicalizer = Logicalizer(
             storage_root,
             compression_level=compression_level,
@@ -104,6 +106,7 @@ class RepositoryService:
     def start_maintenance(self, mode: MaintenanceMode) -> bool:
         if self._closed or self.busy:
             return False
+        self.health.require_healthy()
         stages = (
             ("Clone", "Logicalize", "Sidecar", "Commit", "Retention", "Rollover", "GC", "Verify", "Finalize")
             if mode == "FULL"
@@ -129,6 +132,7 @@ class RepositoryService:
 
     def plan_mutation(self, operation: str, snapshot: str) -> dict[str, Any]:
         """Read-only preview of a destructive operation under the repository lock."""
+        self.health.require_healthy()
         with RepositoryLock(self.repo_root):
             manifest = self.manifests.load_current()
             if manifest is None:
@@ -165,6 +169,7 @@ class RepositoryService:
     def start_mutation(self, operation: str, snapshot: str, expected_generation: int) -> bool:
         if self._closed or self.busy:
             return False
+        self.health.require_healthy()
         if operation not in ("delete", "rollover") or not snapshot or expected_generation < 0:
             raise ValueError("invalid repository mutation request")
         accepted = self._submit(
@@ -182,6 +187,7 @@ class RepositoryService:
 
     def _run_mutation(self, operation: str, snapshot: str, expected_generation: int) -> RepositoryJobResult:
         with RepositoryLock(self.repo_root):
+            self.health.require_healthy()
             self.tracker.update(stage="Validate", detail="checking repository generation", cancelable=False)
             manifest = self.manifests.load_current()
             if manifest is None:
@@ -371,13 +377,36 @@ class RepositoryService:
             self._checkpoint()
 
         with RepositoryLock(self.repo_root):
-            result = self.queue.enforce_before_capture(
-                logicalize,
-                required_bytes=required_bytes,
-            )
+            if self.health.failed:
+                # Do not logicalize, evict or delete raw recovery points while the
+                # repository is known to be untrustworthy. Permit captures only
+                # while capacity and the configured free-space reserve allow.
+                if len(self.queue.pending()) >= self.queue.max_pending:
+                    raise RuntimeError("REPOSITORY FAILED: raw queue is full; capture blocked without eviction")
+                if not self.queue.free_space_allows(required_bytes):
+                    raise RuntimeError("REPOSITORY FAILED: insufficient free space; capture blocked")
+                result = RawLimitResult((), (), False)
+            else:
+                result = self.queue.enforce_before_capture(
+                    logicalize,
+                    required_bytes=required_bytes,
+                )
         self.tracker.update(stage="Finalize", detail="pre-capture checks complete", cancelable=True)
         self._checkpoint()
         return RepositoryJobResult(kind="pre_capture", raw_limits=result)
+
+    def _checked_verify(self, verifier: RepositoryVerifier, *, deep: bool, **kwargs) -> VerifyReport:
+        try:
+            report = verifier.verify(deep=deep, **kwargs)
+        except JobCancelled:
+            raise
+        except Exception as exc:
+            # The durable marker is written before the failed job can return.
+            self.health.fail(exc)
+            raise
+        if deep:
+            self.health.clear_after_deep_verify()
+        return report
 
     def _run_verify(self, deep: bool) -> RepositoryJobResult:
         verifier = RepositoryVerifier(self.manifests, self.objects)
@@ -385,7 +414,7 @@ class RepositoryService:
             self.tracker.update(stage="Structure", detail="checking repository structure")
             self._checkpoint()
             with RepositoryLock(self.repo_root):
-                report = verifier.verify(deep=False)
+                report = self._checked_verify(verifier, deep=False)
             self.tracker.update(stage="Finalize", detail="verification complete")
             return RepositoryJobResult(kind="verify", verify=report)
 
@@ -416,7 +445,8 @@ class RepositoryService:
             )
 
         with RepositoryLock(self.repo_root):
-            report = verifier.verify(
+            report = self._checked_verify(
+                verifier,
                 deep=True,
                 object_progress=object_progress,
                 state_progress=state_progress,
@@ -427,6 +457,7 @@ class RepositoryService:
 
     def _run_maintenance(self, mode: MaintenanceMode) -> RepositoryJobResult:
         with RepositoryLock(self.repo_root):
+            self.health.require_healthy()
             committed, failures = self._drain_pending()
             retention = None
             rollover = None
@@ -547,14 +578,15 @@ class RepositoryService:
                         )
 
                     self.tracker.update(stage="Verify", detail="deep verifying repository")
-                    verify = verifier.verify(
+                    verify = self._checked_verify(
+                        verifier,
                         deep=True,
                         object_progress=object_progress,
                         state_progress=state_progress,
                     )
                 else:
                     self.tracker.update(stage="Verify", detail="checking repository structure")
-                    verify = verifier.verify(deep=False)
+                    verify = self._checked_verify(verifier, deep=False)
                 self._checkpoint()
 
             self.tracker.update(stage="Finalize", detail="maintenance complete")

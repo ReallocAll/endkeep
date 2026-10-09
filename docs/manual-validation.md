@@ -6,7 +6,7 @@ These production checks require a running Bedrock Dedicated Server and are not p
 
 Run this on a disposable copy or a server where a failed test capture can be safely discarded.
 
-1. Install the wheel from a green GitHub Actions artifact and start BDS normally.
+1. Install the wheel from a green GitHub Release and start BDS normally.
 2. Run `/backup status` and confirm EndKeep is enabled, idle, and using the expected storage path.
 3. Run `/backup create`.
 4. Confirm the capture log reports the snapshot ID, file count, raw bytes, full BDS hold duration, exact staging
@@ -30,6 +30,19 @@ The validated reference world was about 444 MiB / 394 files:
 
 Storage hardware and world shape vary, so these are regression references rather than hard limits. A comparable world
 suddenly taking 10–20 seconds of hold time should be treated as a regression and investigated before release.
+
+## Online repository management
+
+The v0.1.9 online export, delete, rollover, and confirmation flows have also
+been manually exercised by the maintainer. For future changes, repeat the
+following on a **disposable repository copy**, not the sole backup:
+
+1. Export a recovery point; verify its world contents and state digest.
+2. Preview and confirm tail/middle DELTA deletion; deep-verify survivors.
+3. Preview and confirm BASE deletion or forced rollover; deep-verify survivors.
+4. Verify stale confirmations are refused after repository changes or reload.
+5. Verify accepted mutations/exports cannot be cancelled.
+6. Verify insufficient disk space and existing export paths leave no partial export.
 
 ## Offline disaster recovery
 

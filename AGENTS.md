@@ -6,7 +6,7 @@ Endstone is a plugin framework for Minecraft Bedrock Dedicated Server (BDS). Plu
 Python packages installed into the server's `plugins/` folder as `.whl` files.
 
 Docs: https://endstone.dev/latest/
-Example plugin: see `src/endstone_example/` in this repo.
+EndKeep source lives under `src/endstone_endkeep/`. Follow the existing repository safety and tests, not example-plugin templates.
 
 ## Project Setup
 

@@ -9,7 +9,7 @@ rather than keeping a complete copy of the world each time.
 
 ## Install
 
-**Linux only.** Requires Python 3.14 and Endstone 0.11 (`>=0.11,<0.12`).
+**Linux only.** Requires Python 3.14 and Endstone 0.11 (`>=0.11,<0.12`). Validated on Ubuntu 24.04 x86-64.
 
 Download the latest [EndKeep release](https://github.com/ReallocAll/endkeep/releases/latest),
 place the `.whl` file in your server's `plugins/` directory, and start the server.
@@ -35,6 +35,7 @@ See [Using EndKeep](docs/using-endkeep.md) for schedules, configuration and offl
 - **Crash-safe repository** — immutable compressed objects and atomic manifest publication.
 - **Background processing** — a separate worker process keeps repository work outside Endstone's Python interpreter.
 - **Offline recovery** — list, verify and restore individual snapshots with the standalone recovery tool.
+- **Fail-closed verification** — integrity failures block repository mutations and preserve pending raw snapshots until a deep verification passes.
 
 ## Storage efficiency
 

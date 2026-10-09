@@ -34,7 +34,7 @@ class StartupRecovery:
         self.manifests = manifests
         self.objects = objects
 
-    def run(self) -> RecoveryReport:
+    def run(self, *, preserve_committed_raw: bool = False) -> RecoveryReport:
         cleaned_raw = self._clear_children(self.raw_root / ".incoming")
         cleaned_work = self._clear_children(self.work_root)
         cleaned_repo = self._clear_children(self.manifests.repo_root / ".incoming")
@@ -49,7 +49,7 @@ class StartupRecovery:
             for path in self.raw_root.iterdir():
                 if not path.is_dir() or path.name == ".incoming":
                     continue
-                if path.name in committed:
+                if path.name in committed and not preserve_committed_raw:
                     shutil.rmtree(path)
                     removed_committed += 1
                     continue
