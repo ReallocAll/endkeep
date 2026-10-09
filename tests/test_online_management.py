@@ -7,11 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from endstone_endkeep.logical.amulet_reader import iter_visible_state
+from endstone_endkeep.offline.cli import command_restore
 from endstone_endkeep.repository.lock import RepositoryLock
 from endstone_endkeep.repository.logicalize import Logicalizer
 from endstone_endkeep.repository.maintenance import RepositoryService
 from endstone_endkeep.repository.manifest import ManifestStore
 from endstone_endkeep.repository.mutation import SnapshotMutator
+from endstone_endkeep.worker.client import RepositoryWorkerClient, WorkerRequestIndeterminate, WorkerTimeout
 from endstone_endkeep.worker.server import WorkerApplication
 from tests.standalone_fixture import add_raw, build_fixture
 
@@ -249,3 +251,46 @@ def test_export_accepts_suffix_snapshots(tmp_path: Path) -> None:
         assert (storage / "exports" / snapshot / "level.dat").read_bytes() == b"third"
     finally:
         service.close()
+
+
+def test_management_client_retries_with_same_request_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = object.__new__(RepositoryWorkerClient)
+    client._status = {"job": {"state": "idle"}}
+    seen: list[dict] = []
+
+    def rpc(request: dict) -> dict:
+        seen.append(dict(request))
+        if len(seen) == 1:
+            raise WorkerTimeout("lost first response")
+        return {"accepted": True, "status": {"job": {"state": "running"}}}
+
+    monkeypatch.setattr(client, "_rpc", rpc)
+    assert client.start_export(S2)
+    assert len(seen) == 2
+    assert seen[0] == seen[1]
+    assert len(seen[0]["request_id"]) == 32
+
+    def always_timeout(_request: dict) -> dict:
+        raise WorkerTimeout("response lost")
+
+    monkeypatch.setattr(client, "_rpc", always_timeout)
+    with pytest.raises(WorkerRequestIndeterminate, match="unknown outcome"):
+        client.start_export(S2)
+
+
+def test_restore_disk_guard_failure_removes_partial_export(tmp_path: Path) -> None:
+    storage = tmp_path / "backups"
+    build_fixture(storage)
+    destination = tmp_path / "exported"
+    checks = 0
+
+    def reserve_check() -> None:
+        nonlocal checks
+        checks += 1
+        if checks > 1:
+            raise RuntimeError("disk reserve reached")
+
+    with pytest.raises(RuntimeError, match="disk reserve reached"):
+        command_restore(storage / "repo", destination, S2, space_guard=reserve_check)
+    assert checks > 1
+    assert not destination.exists()
