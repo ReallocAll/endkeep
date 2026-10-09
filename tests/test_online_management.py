@@ -124,9 +124,7 @@ def test_mutating_middle_delta_retains_restore_state(tmp_path: Path) -> None:
     if probe_state != [(b"a", b"final"), (b"c", b"3")]:
         with iter_visible_state(storage / "raw" / S3 / "level" / "db") as visible:
             raw_state = list(visible)
-        pytest.fail(
-            f"cloned DB lost records: raw={raw_state!r}; clone={probe_state!r}; files={raw_files!r}"
-        )
+        pytest.fail(f"cloned DB lost records: raw={raw_state!r}; clone={probe_state!r}; files={raw_files!r}")
     third = Logicalizer(storage, compression_level=6, compression_threads=1).logicalize(storage / "raw" / S3)
     # Detect empty/misread Windows clone data before destructive chain edits.
     # Otherwise an empty DELTA could look like a successful delete/export.
