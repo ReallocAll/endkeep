@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, override
 
 from endstone.command import Command, CommandSender
+from endstone.metrics import Metrics
 from endstone.plugin import Plugin
 
 from .config import ConfigError, EndKeepConfig, reconcile_config_file
@@ -27,6 +28,7 @@ class EndKeepPlugin(Plugin):
     api_version = "0.11"
 
     AUTO_RPC_RETRY_TICKS = 20
+    BSTATS_PLUGIN_ID = 34593
 
     commands = {
         "backup": {
@@ -64,6 +66,7 @@ class EndKeepPlugin(Plugin):
         self._pending_result_ack: int | None = None
         self._worker_start_retry_ticks = 0
         self._pending_mutations: dict[str, PendingMutation] = {}
+        self._metrics: Metrics | None = None
 
     @override
     def on_enable(self) -> None:
@@ -76,12 +79,34 @@ class EndKeepPlugin(Plugin):
             return
 
         self.server.scheduler.run_task(self, self._tick, delay=1, period=1)
+        self._start_metrics()
         self.logger.info("EndKeep enabled.")
 
     @override
     def on_disable(self) -> None:
-        self._close_runtime()
+        try:
+            self._close_runtime()
+        finally:
+            self._stop_metrics()
         self.logger.info("EndKeep disabled.")
+
+    def _start_metrics(self) -> None:
+        if self._metrics is not None:
+            return
+        try:
+            self._metrics = Metrics(self, self.BSTATS_PLUGIN_ID)
+        except Exception as exc:
+            self.logger.warning(f"Could not initialize bStats metrics (backup features unaffected): {exc}")
+
+    def _stop_metrics(self) -> None:
+        metrics = self._metrics
+        self._metrics = None
+        if metrics is None:
+            return
+        try:
+            metrics.shutdown()
+        except Exception as exc:
+            self.logger.warning(f"Could not shut down bStats metrics cleanly: {exc}")
 
     @override
     def on_command(self, sender: CommandSender, command: Command, args: list[str]) -> bool:
