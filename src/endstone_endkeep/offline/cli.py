@@ -86,7 +86,6 @@ def _progress_write(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-
 def _stage(index: int, total: int, message: str) -> None:
     print(f"[{index}/{total}] {message}", file=sys.stderr)
 
@@ -680,7 +679,6 @@ def install_server_launcher(data_folder: Path) -> Path:
     temporary.chmod(0o755)
     os.replace(temporary, script)
     return script
-
 
 
 def main(argv: Sequence[str] | None = None) -> int:
