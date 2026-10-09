@@ -3,8 +3,12 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 
+import pytest
+
+from endstone_endkeep.logical.format import LogicalFormatError, encode_uvarint
+
 from endstone_endkeep.bds.model import SnapshotEntry
-from endstone_endkeep.logical.sidecar import extract_sidecar, write_sidecar
+from endstone_endkeep.logical.sidecar import SIDECAR_MAGIC, extract_sidecar, write_sidecar
 
 
 def test_sidecar_roundtrip(tmp_path: Path) -> None:
@@ -70,3 +74,25 @@ def test_sidecar_restore_preserves_binary_data(tmp_path: Path) -> None:
     restored = extract_sidecar(archive, destination, strip_prefix="level")
     assert (restored.files, restored.bytes) == (1, len(payload))
     assert (destination / "level.dat").read_bytes() == payload
+
+
+@pytest.mark.parametrize(
+    "path_text",
+    [
+        "level/../../outside-created/level.dat",
+        r"level\\..\\outside-created\\level.dat",
+        "level/C:/outside-created/level.dat",
+        "level/level.dat:stream",
+    ],
+)
+def test_sidecar_rejects_escaping_or_windows_paths(tmp_path: Path, path_text: str) -> None:
+    raw_path = path_text.encode("utf-8")
+    archive = BytesIO(
+        SIDECAR_MAGIC + encode_uvarint(len(raw_path)) + raw_path + encode_uvarint(1) + b"x"
+    )
+    destination = tmp_path / "restored-world"
+    destination.mkdir()
+    with pytest.raises(LogicalFormatError, match="unsafe SIDECAR path"):
+        extract_sidecar(archive, destination, strip_prefix="level")
+    assert not (tmp_path / "outside-created").exists()
+    assert list(destination.iterdir()) == []
