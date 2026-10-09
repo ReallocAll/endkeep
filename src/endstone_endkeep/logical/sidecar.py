@@ -85,7 +85,9 @@ def extract_sidecar(
         except UnicodeDecodeError as exc:
             raise LogicalFormatError("SIDECAR contains a non-UTF-8 path") from exc
         path = PurePosixPath(path_text)
-        if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        if path.is_absolute() or any(
+            part in ("", ".", "..") or "\\" in part or ":" in part for part in path.parts
+        ):
             raise LogicalFormatError(f"unsafe SIDECAR path: {path_text!r}")
         if previous is not None and path_text <= previous:
             raise LogicalFormatError("SIDECAR paths are not strictly increasing")
@@ -103,8 +105,13 @@ def extract_sidecar(
 
         size = _read_uvarint(stream)
         target = destination_root.joinpath(*relative_parts)
+        # Resolve existing path components before creating directories; a malicious
+        # archive must not create anything outside the restore destination.
+        parent = target.parent.resolve(strict=False)
+        if parent != root and root not in parent.parents:
+            raise LogicalFormatError(f"SIDECAR path escapes restore root: {path_text!r}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        parent = target.parent.resolve()
+        parent = target.parent.resolve(strict=True)
         if parent != root and root not in parent.parents:
             raise LogicalFormatError(f"SIDECAR path escapes restore root: {path_text!r}")
 
