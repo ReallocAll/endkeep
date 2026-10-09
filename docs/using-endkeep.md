@@ -14,6 +14,31 @@ Snapshots are retained if they are **within 7 days or among the latest 28**.
 `[retention]` and `[capture]` settings can be changed in `config.toml`.
 `[worker].priority` controls how strongly backup work yields to the server.
 
+## Configuration reference
+
+Edit `plugins/endkeep/config.toml` in the BDS working directory:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `capture.times` | 12:00, 16:30, 20:30, 23:45 | Local-time capture schedule |
+| `maintenance.times` | 06:00, 18:30 | First slot FULL; later slots LOGIC_ONLY |
+| `raw.max_pending` | 18 | Hard upper limit for queued raw snapshots |
+| `raw.max_age_days` | 3 | Maximum raw backlog age before pressure handling |
+| `logical.compression_level` | 6 | Zstd object compression strength |
+| `logical.compression_threads` | 4 | Threads used by compression **inside the worker process** |
+| `retention.keep_days` | 7 | Keep recent snapshots |
+| `retention.keep_last` | 28 | Also keep newest N snapshots (logical **OR** with keep_days) |
+| `storage.path` | backups | Backup root, relative to BDS unless absolute |
+| `storage.min_free_space_gib` | 5 | Free-space reserve for capture/export |
+| `worker.priority` | background | Separate worker's OS priority policy |
+| `verify.mode` | normal | Normal or deep verification **at the end of FULL maintenance** |
+
+The raw backlog limits are **hard**: EndKeep tries logicalizing the oldest raw
+snapshot under pressure but may evict it if logicalization fails. The raw queue
+is not a substitute for committed recovery points. Deep verification validates
+object bytes and replays retained logical states. `/backup verify` is always
+normal; `/backup verify deep` explicitly requests deep verification.
+
 ## Commands
 
 Commands require `endkeep.admin` (operator/console by default).
@@ -21,7 +46,7 @@ Commands require `endkeep.admin` (operator/console by default).
 | Command | Action |
 | --- | --- |
 | `/backup status` | Show capture, repository and worker status |
-| `/backup list` | List committed recovery points |
+| `/backup list` | List all committed recovery points |
 | `/backup create` | Capture a new raw recovery point |
 | `/backup maintenance` | Process pending snapshots |
 | `/backup maintenance full` | Run full maintenance |
@@ -42,7 +67,7 @@ or reloading the plugin clears all pending previews; `/backup confirm` then
 reports that no preview is pending. No confirmation state is written to disk.
 The worker also checks the generation under the repository lock.
 
-Mutations never run concurrently with maintenance and do not immediately reclaim
+After a mutation or export is accepted, it **cannot be cancelled**. Mutations never run concurrently with maintenance and do not immediately reclaim
 orphan objects; scheduled full maintenance handles garbage collection.
 
 Exports always go to `<storage.path>/exports/<snapshot-id>/`. Before restoring,
@@ -99,3 +124,12 @@ when the plugin is unavailable. Run them only while the repository is quiescent.
 See `endkeep-offline.py --help` before using them.
 
 Keep an **independent off-host copy** of `backups/repo/` for machine-level recovery.
+
+## Repository format compatibility
+
+The current repository manifest uses schema 1. EndKeep is pre-1.0 and does
+not yet promise that every future version will transparently read every earlier
+repository. Keep the standalone restore script and offline requirements shipped
+with the release that wrote your snapshots. Make an independently verified copy
+before any future format migration. Incompatible migrations must be explicit,
+documented, and tested; they must never silently rewrite repository history.
