@@ -2,6 +2,12 @@
 
 These production checks require a running Bedrock Dedicated Server and are not part of regular CI.
 
+**Maintainer's live validation host:** Ubuntu 26.04 LTS x86-64. The GitHub Actions
+Ubuntu 24.04 runner validates the Python package and offline fixtures, not BDS
+startup, capture timing or world recovery on that operating system. Before a
+public release, repeat this checklist on the candidate artifacts and record
+BDS/Endstone versions alongside the validation result.
+
 ## Online capture
 
 Run this on a disposable copy or a server where a failed test capture can be safely discarded.

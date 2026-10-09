@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from endstone_endkeep.repository.maintenance import RepositoryJobResult, RepositoryService
 from endstone_endkeep.repository.progress import JobCancelled, ProgressTracker
 from endstone_endkeep.repository.raw_queue import PendingRaw, RawQueue
@@ -109,6 +111,42 @@ def test_pre_capture_cancellation_never_evicts_raw_snapshot(monkeypatch, tmp_pat
     else:
         raise AssertionError("JobCancelled must propagate out of raw-limit enforcement")
 
+    assert raw.is_dir()
+
+
+@pytest.mark.parametrize(
+    ("max_pending", "max_age_days"),
+    [(1, 3), (18, 0)],
+)
+def test_pre_capture_conversion_error_blocks_without_evicting_raw(
+    tmp_path: Path, max_pending: int, max_age_days: int
+) -> None:
+    queue = RawQueue(
+        tmp_path,
+        max_pending=max_pending,
+        max_age_days=max_age_days,
+        min_free_space_gib=0,
+    )
+    raw = tmp_path / "raw" / "older"
+    raw.mkdir(parents=True)
+    pending = PendingRaw(
+        path=raw,
+        snapshot_id="older",
+        captured_at=datetime(2026, 10, 6, 12, tzinfo=UTC),
+        metadata_valid=True,
+    )
+    queue.pending = lambda: [pending]  # type: ignore[method-assign]
+
+    def fail_conversion(_path: Path) -> None:
+        raise OSError("injected logicalization failure")
+
+    with pytest.raises(RuntimeError, match="refusing new capture") as failure:
+        queue.enforce_before_capture(
+            fail_conversion,
+            now=datetime(2026, 10, 7, 12, tzinfo=UTC),
+        )
+
+    assert isinstance(failure.value.__cause__, OSError)
     assert raw.is_dir()
 
 

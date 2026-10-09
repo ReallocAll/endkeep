@@ -84,7 +84,6 @@ class RawQueue:
 
         current = now or datetime.now().astimezone()
         logicalized: list[str] = []
-        dropped: list[str] = []
 
         while True:
             pending = self.pending()
@@ -103,14 +102,16 @@ class RawQueue:
                 continue
             except JobCancelled:
                 raise
-            except Exception:
-                # The hard limit is authoritative. Preserve the newest recovery points
-                # by evicting the oldest raw when it cannot be committed.
-                shutil.rmtree(oldest.path)
-                dropped.append(oldest.snapshot_id)
+            except Exception as exc:
+                # A backup system must not destroy an uncommitted recovery point
+                # just because conversion failed. Reject the new capture instead.
+                raise RuntimeError(
+                    f"cannot commit pending raw snapshot {oldest.snapshot_id}; "
+                    "refusing new capture while preserving existing recovery data"
+                ) from exc
 
         return RawLimitResult(
             logicalized=tuple(logicalized),
-            dropped=tuple(dropped),
+            dropped=(),
             blocked_for_space=not self.free_space_allows(required_bytes),
         )

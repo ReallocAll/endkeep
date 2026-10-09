@@ -1,5 +1,19 @@
 # Using EndKeep
 
+## Platform and installation limits
+
+The live BDS validation environment is **Ubuntu 26.04 LTS x86-64**, Python 3.14,
+and Endstone 0.11. GitHub Actions currently uses Ubuntu 24.04 for automated tests,
+not live BDS compatibility validation. Other Linux distributions and architectures
+are not yet independently validated. EndKeep requires `amulet-leveldb==3.0.7a0`,
+a Python 3.14 native extension whose license has additional use restrictions;
+see [the README license section](../README.md#license).
+
+Endstone normally resolves plugin dependencies when installing the wheel. Panel
+hosts without access to compatible dependency wheels may need their provider to
+preinstall the required packages. Ensure the filesystem has enough space for
+the configured free-space reserve **plus** the raw snapshot staging footprint.
+
 ## Configuration
 
 EndKeep creates `plugins/endkeep/config.toml` when first started.
@@ -34,10 +48,13 @@ Edit `plugins/endkeep/config.toml` in the BDS working directory:
 | `verify.mode` | normal | Normal or deep verification **at the end of FULL maintenance** |
 
 The raw backlog limits are **hard**: EndKeep tries logicalizing the oldest raw
-snapshot under pressure but may evict it if logicalization fails. The raw queue
-is not a substitute for committed recovery points. Deep verification validates
-object bytes and replays retained logical states. `/backup verify` is always
-normal; `/backup verify deep` explicitly requests deep verification.
+snapshot under pressure. If logicalization fails, it preserves the uncommitted
+raw snapshot and **rejects the new capture** instead of silently evicting a
+recovery point. Investigate the worker log and resolve the failure before
+retrying. The raw queue is not a substitute for committed recovery points.
+Deep verification validates object bytes and replays retained logical states.
+`/backup verify` is always normal; `/backup verify deep` explicitly requests
+deep verification.
 
 ## Commands
 
