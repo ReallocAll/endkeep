@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,10 @@ class WorkerError(RuntimeError):
 
 class WorkerTimeout(WorkerError):
     """Raised when a bounded worker RPC does not answer before its deadline."""
+
+
+class WorkerRequestIndeterminate(WorkerError):
+    """A management request may have been accepted despite a lost response."""
 
 
 class RepositoryWorkerClient:
@@ -246,8 +251,27 @@ class RepositoryWorkerClient:
     def plan_mutation(self, operation: str, snapshot: str) -> dict[str, Any]:
         return self._rpc({"command": "plan_mutation", "operation": operation, "snapshot": snapshot})["plan"]
 
+    def _start_management(self, payload: dict[str, Any]) -> bool:
+        # On timeout, retry only the same immutable request ID. The worker
+        # deduplicates accepted requests even after their result was ACKed.
+        request_id = uuid.uuid4().hex
+        request = {**payload, "request_id": request_id}
+        for attempt in range(2):
+            try:
+                response = self._rpc(request)
+            except WorkerError as exc:
+                if attempt == 0:
+                    continue
+                raise WorkerRequestIndeterminate(
+                    f"Management request {request_id} has an unknown outcome. "
+                    "Check /backup status and server logs before issuing a new request."
+                ) from exc
+            self._status = response["status"]
+            return bool(response["accepted"])
+        raise AssertionError("unreachable management retry loop")
+
     def start_mutation(self, operation: str, snapshot: str, *, expected_generation: int) -> bool:
-        response = self._rpc(
+        return self._start_management(
             {
                 "command": "start_mutation",
                 "operation": operation,
@@ -255,13 +279,9 @@ class RepositoryWorkerClient:
                 "expected_generation": expected_generation,
             }
         )
-        self._status = response["status"]
-        return bool(response["accepted"])
 
     def start_export(self, snapshot: str) -> bool:
-        response = self._rpc({"command": "start_export", "snapshot": snapshot})
-        self._status = response["status"]
-        return bool(response["accepted"])
+        return self._start_management({"command": "start_export", "snapshot": snapshot})
 
     def start_pre_capture(
         self,
