@@ -108,7 +108,7 @@ def extract_sidecar(
         if parent != root and root not in parent.parents:
             raise LogicalFormatError(f"SIDECAR path escapes restore root: {path_text!r}")
 
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
         try:
             remaining = size
             while remaining:
