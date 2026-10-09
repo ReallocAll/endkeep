@@ -21,7 +21,8 @@ class MutationConfirmations:
         self._pending: dict[str, PendingMutation] = {}
         try:
             saved = json.loads(self._marker.read_text(encoding="utf-8"))
-            self._restarted = set(saved) if isinstance(saved, list) and all(isinstance(x, str) for x in saved) else set()
+            valid = isinstance(saved, list) and all(isinstance(x, str) for x in saved)
+            self._restarted = set(saved) if valid else set()
         except (OSError, ValueError):
             self._restarted = set()
 
