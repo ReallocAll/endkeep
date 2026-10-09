@@ -31,10 +31,17 @@ Commands require `endkeep.admin` (operator/console by default).
 | `/backup delete <id>` | Preview deletion of a recovery point |
 | `/backup rollover <id>` | Preview advancing BASE to a recovery point |
 | `/backup export <id>` | Restore a recovery point into a new `backups/exports/<id>/` directory |
+| `/backup confirm` | Execute your most recently previewed delete or rollover operation |
 
-To delete or roll over, run the preview command first. EndKeep displays a confirmation
-command containing the current repository generation, for example
-`/backup delete 20261006-163000 confirm 2`. Confirmations reject a changed generation.
+To delete or roll over, run `/backup delete <id>` or `/backup rollover <id>`
+to inspect the impact, followed by **`/backup confirm`** to commit. Previews are
+remembered separately for each command sender, with no timeout. A new preview
+replaces the previous one. Confirming after the repository generation changes
+reports the mismatch and requires a fresh preview. Restarting or reloading
+EndKeep invalidates previous previews and produces an explicit restart message
+for a pending confirmation. Worker-side generation checks still run under the
+repository lock to reject concurrent changes.
+
 Mutations never run concurrently with maintenance and do not immediately reclaim
 orphan objects; scheduled full maintenance handles garbage collection.
 
