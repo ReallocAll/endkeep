@@ -44,46 +44,36 @@ def _resolve_node(manifest: RepositoryManifest, snapshot: str | None) -> Snapsho
     raise KeyError(f"snapshot not found: {snapshot}")
 
 
-class _ProgressBar:
-    """Low-noise standard-library progress output for wheel and standalone CLIs."""
+def _new_progress_bar(
+    *,
+    total: int,
+    desc: str,
+    unit: str,
+    unit_scale: bool = False,
+):
+    try:
+        from tqdm import tqdm
+    except ImportError as exc:
+        raise RuntimeError("tqdm is required for offline progress display; install requirements-offline.txt") from exc
 
-    def __init__(self, *, total: int, desc: str, unit: str, unit_scale: bool = False) -> None:
-        self.total = total
-        self.desc = desc
-        self.unit = unit
-        self.unit_scale = unit_scale
-        self.n = 0
-        self._last_report = 0.0
-        self._reported = False
-
-    def update(self, amount: int) -> None:
-        self.n += amount
-        now = time.monotonic()
-        if now - self._last_report >= 1.0 or (self.total and self.n >= self.total):
-            self._report(now)
-
-    def _report(self, now: float) -> None:
-        count = f"{self.n:,}"
-        total = f"{self.total:,}"
-        if self.unit_scale and self.n >= 1000:
-            count = f"{self.n / 1000:.1f}k"
-            total = f"{self.total / 1000:.1f}k"
-        percent = f" ({self.n / self.total * 100:.1f}%)" if self.total else ""
-        print(f"{self.desc}: {count}/{total} {self.unit}{percent}", file=sys.stderr, flush=True)
-        self._last_report = now
-        self._reported = True
-
-    def close(self) -> None:
-        if not self._reported or self.n < self.total:
-            self._report(time.monotonic())
-
-
-def _new_progress_bar(*, total: int, desc: str, unit: str, unit_scale: bool = False) -> _ProgressBar:
-    return _ProgressBar(total=total, desc=desc, unit=unit, unit_scale=unit_scale)
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit=unit,
+        unit_scale=unit_scale,
+        dynamic_ncols=True,
+        mininterval=0.2,
+        file=sys.stderr,
+        leave=True,
+    )
 
 
 def _progress_write(message: str) -> None:
-    print(message, file=sys.stderr)
+    try:
+        from tqdm import tqdm
+    except ImportError as exc:
+        raise RuntimeError("tqdm is required for offline progress display; install requirements-offline.txt") from exc
+    tqdm.write(message, file=sys.stderr)
 
 
 def _stage(index: int, total: int, message: str) -> None:
