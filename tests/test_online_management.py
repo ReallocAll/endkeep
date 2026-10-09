@@ -95,7 +95,10 @@ def test_mutating_middle_delta_retains_restore_state(tmp_path: Path) -> None:
     storage = tmp_path / "backups"
     build_fixture(storage)
     add_raw(storage, S3, [(b"a", b"final"), (b"c", b"3")], b"last")
-    Logicalizer(storage, compression_level=6, compression_threads=1).logicalize(storage / "raw" / S3)
+    third = Logicalizer(storage, compression_level=6, compression_threads=1).logicalize(storage / "raw" / S3)
+    # Detect empty/misread Windows clone data before destructive chain edits.
+    # Otherwise an empty DELTA could look like a successful delete/export.
+    assert third.records == 2, f"third snapshot unexpectedly empty before mutation: {third}"
     service = _service(storage)
     try:
         preview = service.plan_mutation("delete", S2)
