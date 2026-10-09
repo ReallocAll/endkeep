@@ -35,6 +35,7 @@ See [Using EndKeep](docs/using-endkeep.md) for schedules, configuration and offl
 - **Crash-safe repository** — immutable compressed objects and atomic manifest publication.
 - **Background processing** — a separate worker process keeps repository work outside Endstone's Python interpreter.
 - **Offline recovery** — list, verify and restore individual snapshots with the standalone recovery tool.
+- **Fail-closed verification** — integrity failures block repository mutations and preserve pending raw snapshots until a deep verification passes.
 
 ## Storage efficiency
 
