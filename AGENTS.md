@@ -1,7 +1,7 @@
 # Working on EndKeep
 
 EndKeep is a Python plugin for Endstone that creates incremental backups of
-Minecraft Bedrock worlds. EndKeep targets Python 3.12–3.14
+Minecraft Bedrock worlds. EndKeep targets Python 3.12–3.15
 on Linux and Windows x86-64 with Endstone 0.11. For Endstone API usage, see
 [Endstone's documentation](https://endstone.dev/).
 
@@ -36,11 +36,11 @@ uv run --no-sync pytest
 - Update user documentation for visible behavior changes. Explain what server
   owners need to do; keep internal implementation notes out of usage guides.
 - Do not create releases or rewrite version tags unless explicitly requested.
-- Python 3.12/3.13 resolves pinned, SHA256-verified Amulet-LevelDB compatibility
+- Python 3.12/3.13/3.15 resolves pinned, SHA256-verified Amulet-LevelDB compatibility
   Wheels from the dedicated GitHub Release. Test a clean EndKeep install without
   pre-installing the dependency. The upstream Amulet version metadata currently prevents regenerating a
   universal uv.lock; prefer `uv pip install` instead of `uv sync`.
-- The six-combination compatibility workflow is not a substitute for
+- The eight-combination compatibility workflow is not a substitute for
   testing real BDS worlds, especially NTFS crash and directory metadata durability.
 
 See [Contributing](CONTRIBUTING.md) and the

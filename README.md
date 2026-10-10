@@ -8,7 +8,7 @@ without storing a complete world copy each time, and lets you restore an earlier
 
 ## Installation
 
-Requires **Endstone 0.11** and **Python 3.12–3.14**.
+Requires **Endstone 0.11** and **Python 3.12–3.15**.
 
 1. Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
 2. Place it in the server's `plugins/` directory.
