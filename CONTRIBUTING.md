@@ -2,7 +2,7 @@
 
 Bug reports, fixes and documentation improvements are welcome.
 
-EndKeep supports Linux and Windows x86-64, Python 3.12–3.14 and Endstone 0.11.
+EndKeep requires Endstone 0.11 and Python 3.12–3.14.
 To work on the project:
 
 ```sh
