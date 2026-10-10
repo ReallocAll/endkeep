@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Support Python 3.15 on Linux and Windows x86-64 using SHA256-pinned Amulet-LevelDB 3.0.7a0 compatibility Wheels.
+- Validate Python 3.15 against Endstone CPython 3.15 development Wheels in bds-test-lab.
+
 ## [0.3.0] - 2026-10-10
 
 ### Added
