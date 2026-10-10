@@ -4,12 +4,17 @@ These checks complement automated tests. Perform them with a release candidate
 on a test world before publishing a version.
 
 **Automated validation:** Python 3.12/3.13/3.14 on Linux x86-64 and Windows
-x64; [six-combination CI](https://github.com/ReallocAll/endkeep/actions/runs/37976573011).
-Real BDS 1.26.52.3 / Endstone 0.11.13 with Python 3.14 passed on both platforms
-in [bds-test-lab](https://github.com/ReallocAll/bds-test-lab/actions/runs/37977425842):
-two online snapshots, maintenance, deep verify, export, graceful BDS stop,
-explicit authenticated worker shutdown and offline restore. The tests do
-not establish equivalent NTFS/POSIX sudden-power-loss guarantees.
+x64; [six-combination CI](https://github.com/ReallocAll/endkeep/actions/runs/37977954894).
+All six combinations have also passed real BDS 1.26.52.3 / Endstone 0.11.13
+testing in bds-test-lab: [Python 3.12/3.13 on both platforms](https://github.com/ReallocAll/bds-test-lab/actions/runs/38016065768)
+used the published EndKeep v0.3.0 Wheel, and the
+[Python 3.14 runs](https://github.com/ReallocAll/bds-test-lab/actions/runs/37977425842)
+used a pre-release PR Wheel. Each scenario captured two online snapshots,
+ran BASE/DELTA maintenance and deep verify, exported a recovery point, stopped
+BDS, shut down the reload-persistent worker, and checked the offline restore
+against the export, including LevelDB and level.dat. These tests do not
+simulate sudden power loss or establish equivalent NTFS/POSIX directory
+durability guarantees.
 
 ## Installation and backup
 
@@ -37,9 +42,9 @@ Keep these tests on disposable worlds or independent copies of backup data.
 
 ## Cross-platform release acceptance (Python 3.12–3.14)
 
-The Python 3.14 smoke scenarios were completed on disposable Linux and Windows
-BDS worlds. Repeat the following when validating additional server versions,
-large repositories or production configurations.
+The six supported Python/OS combinations passed smoke scenarios on disposable
+Linux and Windows BDS worlds. Repeat the following when validating additional
+server versions, large repositories or production configurations.
 
 1. Test the exact published plugin Wheel and a clean installation on Endstone
    0.11 for Python 3.12/3.13/3.14. The 3.12/3.13 compatibility Wheels of
