@@ -24,9 +24,11 @@ jobs:
           - { os: ubuntu-24.04, python: '3.12', wheel: cp312-manylinux_x86_64 }
           - { os: ubuntu-24.04, python: '3.13', wheel: cp313-manylinux_x86_64 }
           - { os: ubuntu-24.04, python: '3.14', wheel: '' }
+          - { os: ubuntu-24.04, python: '3.15', wheel: cp315-manylinux_x86_64 }
           - { os: windows-2025, python: '3.12', wheel: cp312-win_amd64 }
           - { os: windows-2025, python: '3.13', wheel: cp313-win_amd64 }
           - { os: windows-2025, python: '3.14', wheel: '' }
+          - { os: windows-2025, python: '3.15', wheel: cp315-win_amd64 }
     defaults:
       run:
         shell: bash
@@ -59,13 +61,14 @@ jobs:
           PY
           cp .github/scripts/amulet_leveldb_smoke.py amulet-src/tests/test_backport_smoke.py
           git -C amulet-src diff --check
-      - name: Setup Python
+      - name: Setup host Python
+        if: matrix.python != '3.15'
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Install cibuildwheel
         if: matrix.python != '3.14'
-        run: python -m pip install 'cibuildwheel~=4.1'
+        run: python -m pip install 'cibuildwheel==4.2.0'
       - name: Build and test Amulet wheel
         if: matrix.python != '3.14'
         env:
@@ -81,6 +84,18 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+      - name: Download exact Endstone CPython 3.15 Wheel
+        if: matrix.python == '3.15'
+        uses: actions/download-artifact@v8
+        with:
+          repository: EndstoneMC/endstone
+          run-id: 38045137884
+          github-token: ${{ github.token }}
+          pattern: endstone-*-cp315-cp315-*.whl
+          path: endstone-dist
+          merge-multiple: true
+          skip-decompress: true
+
       - name: Test installed EndKeep with matched Amulet
         run: |
           uv venv .venv --python '${{ matrix.python }}'
@@ -89,15 +104,24 @@ jobs:
           else
             PYTHON=.venv/bin/python
           fi
+          if [[ "${{ matrix.python }}" == "3.15" ]]; then
+            if [[ "${{ runner.os }}" == "Windows" ]]; then
+              ENDSTONE_WHEEL="$(find endstone-dist -name '*cp315*win_amd64.whl' -print -quit)"
+            else
+              ENDSTONE_WHEEL="$(find endstone-dist -name '*cp315*manylinux*.whl' -print -quit)"
+            fi
+            test -n "$ENDSTONE_WHEEL"
+            uv pip install --python "$PYTHON" "$ENDSTONE_WHEEL"
+          fi
           # Fresh dependency resolution: do NOT seed the local Amulet build.
-          # This must fetch the exact published GitHub Release Wheel on 3.12/3.13.
+          # This must fetch the exact published GitHub Release Wheel on 3.12/3.13/3.15.
           uv pip install --python "$PYTHON" -e '.[dev]'
           "$PYTHON" - <<'PY'
           from importlib.metadata import distribution
           from packaging.requirements import Requirement
           requires = distribution("endstone-endkeep").requires or []
           amulet = [Requirement(req) for req in requires if Requirement(req).name == "amulet-leveldb"]
-          assert len(amulet) == 5, [str(req) for req in amulet]
+          assert len(amulet) == 7, [str(req) for req in amulet]
           print("Packaged Amulet selectors:", *amulet, sep="\\n")
           PY
           uv pip check --python "$PYTHON"
@@ -118,11 +142,11 @@ jobs:
           retention-days: 7
 
   verified-backports:
-    name: Collect verified CPython 3.12/3.13 Wheels
+    name: Collect verified compatibility Wheels
     needs: full-matrix
     runs-on: ubuntu-24.04
     steps:
-      - name: Download four tested wheel artifacts
+      - name: Download tested wheel artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: amulet-compat-*
@@ -138,8 +162,8 @@ jobs:
 
           root = Path("dist")
           wheels = sorted(root.glob("*.whl"))
-          assert len(wheels) == 4, [p.name for p in wheels]
-          for abi in ("cp312", "cp313"):
+          assert len(wheels) == 6, [p.name for p in wheels]
+          for abi in ("cp312", "cp313", "cp315"):
               for platform in ("manylinux_", "win_amd64"):
                   matches = [
                       p for p in wheels
@@ -164,7 +188,7 @@ jobs:
       - name: Upload verified wheel set for review (not a GitHub Release)
         uses: actions/upload-artifact@v4
         with:
-          name: amulet-backports-verified-four-wheels
+          name: amulet-backports-verified-six-wheels
           path: |
             dist/*.whl
             dist/SHA256SUMS
