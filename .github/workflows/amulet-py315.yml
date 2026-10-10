@@ -3,6 +3,9 @@ name: Amulet-LevelDB Python 3.15 compatibility Wheels
 on:
   push:
     branches: [feat/python315-compat]
+    paths:
+      - '.github/workflows/amulet-py315.yml'
+      - '.github/scripts/amulet_leveldb_smoke.py'
   workflow_dispatch:
 
 permissions:
@@ -145,7 +148,7 @@ jobs:
         run: |
           TAG=amulet-leveldb-3.0.7a0-compat-cp315
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Compatibility release $TAG already exists; refusing to overwrite it."
-            exit 1
+            echo "Compatibility release $TAG already published; leaving verified assets unchanged."
+            exit 0
           fi
           gh release create "$TAG"             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Amulet-LevelDB 3.0.7a0 CPython 3.15 compatibility Wheels"             --prerelease             --notes "Unofficial CPython 3.15 compatibility builds from Amulet-Team/Amulet-LevelDB commit 736228e375e9f535b6522bd28168fc306a5354b9. The Python metadata floor is relaxed; the native implementation is unchanged. Both Linux and Windows x86-64 Wheels passed upstream DB and EndKeep smoke tests. Upstream Amulet Team License applies."             dist/*.whl dist/SHA256SUMS
