@@ -40,17 +40,17 @@ Automatic backups are enabled by default.
 
 ## Storage efficiency
 
-In one 54-hour server test, **14 recovery points used 0.54 GiB** with EndKeep,
-compared with **7.40 GiB** for 14 individually compressed full backups
-(92.67% less storage). Savings depend on world activity and backup history.
+In a real-world Bedrock server test spanning **156.2 hours**, **38 recovery points used just 0.721 GiB** with EndKeep, compared with **23.009 GiB** for 38 independently compressed full backups (TAR + Zstd-6).
+
+That's **96.87% less storage** — **31.90× smaller** than independent full backups. Savings depend on world activity and backup history.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmarks/2026-10-storage/cumulative-storage-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="docs/benchmarks/2026-10-storage/cumulative-storage.svg">
-  <img src="docs/benchmarks/2026-10-storage/cumulative-storage.svg" alt="Storage used by 14 EndKeep recovery points compared with independent compressed full backups.">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmarks/2026-10-38-snapshots/cumulative-storage-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/benchmarks/2026-10-38-snapshots/cumulative-storage.svg">
+  <img src="docs/benchmarks/2026-10-38-snapshots/cumulative-storage.svg" alt="Cumulative storage for 38 EndKeep recovery points compared with independently compressed full backups.">
 </picture>
 
-[Benchmark results and methodology](docs/benchmarks/2026-10-storage/benchmark.md)
+[Benchmark results and methodology](docs/benchmarks/2026-10-38-snapshots/benchmark.md)
 
 ## Documentation
 

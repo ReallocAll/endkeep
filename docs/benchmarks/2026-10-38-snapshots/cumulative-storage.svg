@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="726" viewBox="0 0 1320 726" role="img" aria-labelledby="chart-title chart-desc">
+<title id="chart-title">EndKeep storage benchmark: 38 recovery points</title>
+<desc id="chart-desc">Independently compressed full backups total 23.009 GiB; EndKeep repository uses 0.721 GiB, saving 96.87%. The main plot shows cumulative independent compressed backups and EndKeep compressed objects. The inset zooms EndKeep compressed objects.</desc>
+<rect width="1320" height="726" fill="#ffffff"/>
+<g font-family="system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif">
+<text x="44" y="48" fill="#1b2938" font-size="28" font-weight="700">Storage across 38 recovery points</text>
+<text x="44" y="78" font-size="16" fill="#607286">Cumulative storage (GiB) · real-world Bedrock server · October 6–13, 2026</text>
+<circle cx="104" cy="113" r="5.5" fill="#6b7d91"/><text x="120" y="119" font-size="15" fill="#607286">Independent full backups (TAR + Zstd-6)</text>
+<circle cx="516" cy="113" r="5.5" fill="#139374"/><text x="532" y="119" font-size="15" fill="#607286">EndKeep compressed objects</text>
+<text x="1220" y="50" text-anchor="end" font-size="23" font-weight="750" fill="#139374">96.87% less</text>
+<text x="1220" y="78" text-anchor="end" font-size="15" fill="#607286">31.90× smaller</text>
+<line x1="104" y1="435.00" x2="1220" y2="435.00" stroke="#e5ebf1" stroke-width="1"/>
+<text x="88" y="440.00" font-size="14" text-anchor="end" fill="#607286">0</text>
+<line x1="104" y1="379.80" x2="1220" y2="379.80" stroke="#e5ebf1" stroke-width="1"/>
+<text x="88" y="384.80" font-size="14" text-anchor="end" fill="#607286">5</text>
+<line x1="104" y1="324.60" x2="1220" y2="324.60" stroke="#e5ebf1" stroke-width="1"/>
+<text x="88" y="329.60" font-size="14" text-anchor="end" fill="#607286">10</text>
+<line x1="104" y1="269.40" x2="1220" y2="269.40" stroke="#e5ebf1" stroke-width="1"/>
+<text x="88" y="274.40" font-size="14" text-anchor="end" fill="#607286">15</text>
+<line x1="104" y1="214.20" x2="1220" y2="214.20" stroke="#e5ebf1" stroke-width="1"/>
+<text x="88" y="219.20" font-size="14" text-anchor="end" fill="#607286">20</text>
+<line x1="104" y1="159.00" x2="1220" y2="159.00" stroke="#e5ebf1" stroke-width="1"/>
+<text x="88" y="164.00" font-size="14" text-anchor="end" fill="#607286">25</text>
+<line x1="104" y1="154" x2="104" y2="435" stroke="#c6d1da"/><line x1="104" y1="435" x2="1220" y2="435" stroke="#c6d1da"/>
+<line x1="104.00" y1="435" x2="104.00" y2="441" stroke="#c6d1da"/>
+<text x="104.00" y="457" text-anchor="middle" font-size="13" fill="#607286">1</text>
+<line x1="224.65" y1="435" x2="224.65" y2="441" stroke="#c6d1da"/>
+<text x="224.65" y="457" text-anchor="middle" font-size="13" fill="#607286">5</text>
+<line x1="375.46" y1="435" x2="375.46" y2="441" stroke="#c6d1da"/>
+<text x="375.46" y="457" text-anchor="middle" font-size="13" fill="#607286">10</text>
+<line x1="526.27" y1="435" x2="526.27" y2="441" stroke="#c6d1da"/>
+<text x="526.27" y="457" text-anchor="middle" font-size="13" fill="#607286">15</text>
+<line x1="677.08" y1="435" x2="677.08" y2="441" stroke="#c6d1da"/>
+<text x="677.08" y="457" text-anchor="middle" font-size="13" fill="#607286">20</text>
+<line x1="827.89" y1="435" x2="827.89" y2="441" stroke="#c6d1da"/>
+<text x="827.89" y="457" text-anchor="middle" font-size="13" fill="#607286">25</text>
+<line x1="978.70" y1="435" x2="978.70" y2="441" stroke="#c6d1da"/>
+<text x="978.70" y="457" text-anchor="middle" font-size="13" fill="#607286">30</text>
+<line x1="1129.51" y1="435" x2="1129.51" y2="441" stroke="#c6d1da"/>
+<text x="1129.51" y="457" text-anchor="middle" font-size="13" fill="#607286">35</text>
+<line x1="1220.00" y1="435" x2="1220.00" y2="441" stroke="#c6d1da"/>
+<text x="1220.00" y="457" text-anchor="middle" font-size="13" fill="#607286">38</text>
+<polyline points="104.00,429.75 134.16,424.49 164.32,419.10 194.49,413.69 224.65,408.12 254.81,402.37 284.97,396.38 315.14,390.26 345.30,384.13 375.46,377.99 405.62,371.86 435.78,365.72 465.95,359.56 496.11,353.28 526.27,346.97 556.43,340.63 586.59,334.27 616.76,327.84 646.92,321.30 677.08,314.70 707.24,307.84 737.41,300.99 767.57,294.13 797.73,287.19 827.89,280.08 858.05,272.94 888.22,265.73 918.38,258.41 948.54,251.04 978.70,243.47 1008.86,235.89 1039.03,228.26 1069.19,220.60 1099.35,212.90 1129.51,205.19 1159.68,197.29 1189.84,189.16 1220.00,180.99" fill="none" stroke="#6b7d91" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="104.00,430.12 134.16,430.11 164.32,429.97 194.49,429.96 224.65,429.78 254.81,429.61 284.97,429.34 315.14,429.21 345.30,429.18 375.46,429.18 405.62,429.17 435.78,429.16 465.95,429.14 496.11,429.01 526.27,428.96 556.43,428.94 586.59,428.91 616.76,428.83 646.92,428.72 677.08,428.65 707.24,428.41 737.41,428.41 767.57,428.40 797.73,428.32 827.89,428.15 858.05,428.11 888.22,428.03 918.38,427.92 948.54,427.87 978.70,427.67 1008.86,427.65 1039.03,427.60 1069.19,427.57 1099.35,427.53 1129.51,427.52 1159.68,427.31 1189.84,427.09 1220.00,427.05" fill="none" stroke="#139374" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="104.00" cy="429.75" r="2.5" fill="#6b7d91"/>
+<circle cx="134.16" cy="424.49" r="2.5" fill="#6b7d91"/>
+<circle cx="164.32" cy="419.10" r="2.5" fill="#6b7d91"/>
+<circle cx="194.49" cy="413.69" r="2.5" fill="#6b7d91"/>
+<circle cx="224.65" cy="408.12" r="2.5" fill="#6b7d91"/>
+<circle cx="254.81" cy="402.37" r="2.5" fill="#6b7d91"/>
+<circle cx="284.97" cy="396.38" r="2.5" fill="#6b7d91"/>
+<circle cx="315.14" cy="390.26" r="2.5" fill="#6b7d91"/>
+<circle cx="345.30" cy="384.13" r="2.5" fill="#6b7d91"/>
+<circle cx="375.46" cy="377.99" r="2.5" fill="#6b7d91"/>
+<circle cx="405.62" cy="371.86" r="2.5" fill="#6b7d91"/>
+<circle cx="435.78" cy="365.72" r="2.5" fill="#6b7d91"/>
+<circle cx="465.95" cy="359.56" r="2.5" fill="#6b7d91"/>
+<circle cx="496.11" cy="353.28" r="2.5" fill="#6b7d91"/>
+<circle cx="526.27" cy="346.97" r="2.5" fill="#6b7d91"/>
+<circle cx="556.43" cy="340.63" r="2.5" fill="#6b7d91"/>
+<circle cx="586.59" cy="334.27" r="2.5" fill="#6b7d91"/>
+<circle cx="616.76" cy="327.84" r="2.5" fill="#6b7d91"/>
+<circle cx="646.92" cy="321.30" r="2.5" fill="#6b7d91"/>
+<circle cx="677.08" cy="314.70" r="2.5" fill="#6b7d91"/>
+<circle cx="707.24" cy="307.84" r="2.5" fill="#6b7d91"/>
+<circle cx="737.41" cy="300.99" r="2.5" fill="#6b7d91"/>
+<circle cx="767.57" cy="294.13" r="2.5" fill="#6b7d91"/>
+<circle cx="797.73" cy="287.19" r="2.5" fill="#6b7d91"/>
+<circle cx="827.89" cy="280.08" r="2.5" fill="#6b7d91"/>
+<circle cx="858.05" cy="272.94" r="2.5" fill="#6b7d91"/>
+<circle cx="888.22" cy="265.73" r="2.5" fill="#6b7d91"/>
+<circle cx="918.38" cy="258.41" r="2.5" fill="#6b7d91"/>
+<circle cx="948.54" cy="251.04" r="2.5" fill="#6b7d91"/>
+<circle cx="978.70" cy="243.47" r="2.5" fill="#6b7d91"/>
+<circle cx="1008.86" cy="235.89" r="2.5" fill="#6b7d91"/>
+<circle cx="1039.03" cy="228.26" r="2.5" fill="#6b7d91"/>
+<circle cx="1069.19" cy="220.60" r="2.5" fill="#6b7d91"/>
+<circle cx="1099.35" cy="212.90" r="2.5" fill="#6b7d91"/>
+<circle cx="1129.51" cy="205.19" r="2.5" fill="#6b7d91"/>
+<circle cx="1159.68" cy="197.29" r="2.5" fill="#6b7d91"/>
+<circle cx="1189.84" cy="189.16" r="2.5" fill="#6b7d91"/>
+<circle cx="1220.00" cy="180.99" r="2.5" fill="#6b7d91"/>
+<text x="104.00" y="417.75" text-anchor="start" font-size="14" font-weight="600" fill="#425669">0.48</text>
+<text x="375.46" y="365.99" text-anchor="middle" font-size="14" font-weight="600" fill="#425669">5.16</text>
+<text x="677.08" y="302.70" text-anchor="middle" font-size="14" font-weight="600" fill="#425669">10.90</text>
+<text x="978.70" y="231.47" text-anchor="middle" font-size="14" font-weight="600" fill="#425669">17.35</text>
+<text x="1220.00" y="168.99" text-anchor="end" font-size="14" font-weight="600" fill="#425669">23.01</text>
+<rect x="104" y="480" width="1116" height="188" rx="9" fill="#f7fafc" stroke="#c6d3df" stroke-width="1.4"/>
+<text x="123" y="506" font-size="16" font-weight="700" fill="#08785e">EndKeep · cumulative compressed objects (zoomed)</text>
+<text x="1200" y="506" text-anchor="end" font-size="13" fill="#607286">GiB · 0.40–0.76</text>
+<line x1="136" y1="642.00" x2="1200" y2="642.00" stroke="#e1ede8"/>
+<text x="129" y="646.00" font-size="12" text-anchor="end" fill="#607286">0.40</text>
+<line x1="136" y1="609.78" x2="1200" y2="609.78" stroke="#e1ede8"/>
+<text x="129" y="613.78" font-size="12" text-anchor="end" fill="#607286">0.50</text>
+<line x1="136" y1="577.56" x2="1200" y2="577.56" stroke="#e1ede8"/>
+<text x="129" y="581.56" font-size="12" text-anchor="end" fill="#607286">0.60</text>
+<line x1="136" y1="545.33" x2="1200" y2="545.33" stroke="#e1ede8"/>
+<text x="129" y="549.33" font-size="12" text-anchor="end" fill="#607286">0.70</text>
+<polyline points="136.00,628.47 164.76,628.19 193.51,624.02 222.27,623.72 251.03,618.42 279.78,613.44 308.54,605.81 337.30,601.80 366.05,601.06 394.81,600.93 423.57,600.77 452.32,600.53 481.08,599.76 509.84,596.05 538.59,594.71 567.35,594.04 596.11,593.20 624.86,590.88 653.62,587.59 682.38,585.56 711.14,578.49 739.89,578.42 768.65,578.16 797.41,575.83 826.16,570.93 854.92,569.91 883.68,567.55 912.43,564.37 941.19,562.79 969.95,556.94 998.70,556.41 1027.46,554.87 1056.22,554.02 1084.97,552.76 1113.73,552.46 1142.49,546.51 1171.24,540.08 1200.00,538.95" fill="none" stroke="#139374" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="136.00" cy="628.47" r="2.5" fill="#139374"/>
+<circle cx="164.76" cy="628.19" r="2.5" fill="#139374"/>
+<circle cx="193.51" cy="624.02" r="2.5" fill="#139374"/>
+<circle cx="222.27" cy="623.72" r="2.5" fill="#139374"/>
+<circle cx="251.03" cy="618.42" r="2.5" fill="#139374"/>
+<circle cx="279.78" cy="613.44" r="2.5" fill="#139374"/>
+<circle cx="308.54" cy="605.81" r="2.5" fill="#139374"/>
+<circle cx="337.30" cy="601.80" r="2.5" fill="#139374"/>
+<circle cx="366.05" cy="601.06" r="2.5" fill="#139374"/>
+<circle cx="394.81" cy="600.93" r="2.5" fill="#139374"/>
+<circle cx="423.57" cy="600.77" r="2.5" fill="#139374"/>
+<circle cx="452.32" cy="600.53" r="2.5" fill="#139374"/>
+<circle cx="481.08" cy="599.76" r="2.5" fill="#139374"/>
+<circle cx="509.84" cy="596.05" r="2.5" fill="#139374"/>
+<circle cx="538.59" cy="594.71" r="2.5" fill="#139374"/>
+<circle cx="567.35" cy="594.04" r="2.5" fill="#139374"/>
+<circle cx="596.11" cy="593.20" r="2.5" fill="#139374"/>
+<circle cx="624.86" cy="590.88" r="2.5" fill="#139374"/>
+<circle cx="653.62" cy="587.59" r="2.5" fill="#139374"/>
+<circle cx="682.38" cy="585.56" r="2.5" fill="#139374"/>
+<circle cx="711.14" cy="578.49" r="2.5" fill="#139374"/>
+<circle cx="739.89" cy="578.42" r="2.5" fill="#139374"/>
+<circle cx="768.65" cy="578.16" r="2.5" fill="#139374"/>
+<circle cx="797.41" cy="575.83" r="2.5" fill="#139374"/>
+<circle cx="826.16" cy="570.93" r="2.5" fill="#139374"/>
+<circle cx="854.92" cy="569.91" r="2.5" fill="#139374"/>
+<circle cx="883.68" cy="567.55" r="2.5" fill="#139374"/>
+<circle cx="912.43" cy="564.37" r="2.5" fill="#139374"/>
+<circle cx="941.19" cy="562.79" r="2.5" fill="#139374"/>
+<circle cx="969.95" cy="556.94" r="2.5" fill="#139374"/>
+<circle cx="998.70" cy="556.41" r="2.5" fill="#139374"/>
+<circle cx="1027.46" cy="554.87" r="2.5" fill="#139374"/>
+<circle cx="1056.22" cy="554.02" r="2.5" fill="#139374"/>
+<circle cx="1084.97" cy="552.76" r="2.5" fill="#139374"/>
+<circle cx="1113.73" cy="552.46" r="2.5" fill="#139374"/>
+<circle cx="1142.49" cy="546.51" r="2.5" fill="#139374"/>
+<circle cx="1171.24" cy="540.08" r="2.5" fill="#139374"/>
+<circle cx="1200.00" cy="538.95" r="2.5" fill="#139374"/>
+<text x="136.00" y="617.47" text-anchor="start" font-size="12" font-weight="650" fill="#08785e">0.442</text>
+<text x="308.54" y="594.81" text-anchor="middle" font-size="12" font-weight="650" fill="#08785e">0.512</text>
+<text x="509.84" y="585.05" text-anchor="middle" font-size="12" font-weight="650" fill="#08785e">0.543</text>
+<text x="711.14" y="567.49" text-anchor="middle" font-size="12" font-weight="650" fill="#08785e">0.597</text>
+<text x="912.43" y="553.37" text-anchor="middle" font-size="12" font-weight="650" fill="#08785e">0.641</text>
+<text x="1200.00" y="527.95" text-anchor="end" font-size="12" font-weight="650" fill="#08785e">0.720</text>
+<text x="104" y="694" font-size="13" fill="#607286">38 recovery points · same GiB units in both plots; the lower panel uses a magnified y-axis.</text>
+<text x="1220" y="694" text-anchor="end" font-size="13" fill="#607286">Repository on disk: 0.721 GiB</text>
+</g></svg>
