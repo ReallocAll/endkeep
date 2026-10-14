@@ -99,6 +99,8 @@ class WorkerApplication:
             if command == "detach":
                 self.detached_at = time.monotonic()
                 return {"ok": True, "status": self._status_locked()}
+            if command == "shutdown" and self.shutdown_requested:
+                return {"ok": True, "status": self._status_locked()}
             if self.shutdown_requested and command not in ("status", "poll", "list_snapshots", "ack_result"):
                 return {"ok": False, "error": "repository worker is draining"}
             if command == "configure":
