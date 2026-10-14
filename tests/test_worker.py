@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +14,185 @@ import pytest
 
 from endstone_endkeep.worker.client import RepositoryWorkerClient, WorkerError
 from endstone_endkeep.worker.server import WorkerApplication
+
+
+def test_detach_hands_off_without_cancelling_and_results_survive_exit(tmp_path: Path, monkeypatch) -> None:
+    app = WorkerApplication(tmp_path / "backups", priority="background")
+    app._queue_result({"kind": "verify", "verify": {"deep": True}})
+    response = app.handle({"command": "detach"})
+    assert response["ok"], response
+    stopped = threading.Event()
+    app.set_stop_callback(stopped.set)
+    monkeypatch.setattr("endstone_endkeep.worker.server._HANDOFF_GRACE_SECONDS", 0.1)
+    monitor = threading.Thread(target=app.monitor, daemon=True)
+    monitor.start()
+    assert stopped.wait(3), "unacknowledged result prevented detached worker exit"
+    app.close()
+    restarted = WorkerApplication(tmp_path / "backups", priority="background")
+    result = restarted.handle({"command": "poll"})["result"]
+    assert result["payload"] == {"kind": "verify", "verify": {"deep": True}}
+    assert restarted.handle({"command": "ack_result", "result_id": result["id"]})["accepted"]
+    assert not WorkerApplication(tmp_path / "backups", priority="background").results
+
+
+def test_worker_exits_after_controller_process_dies(tmp_path: Path) -> None:
+    storage = tmp_path / "orphan"
+    code = (
+        "import sys; from pathlib import Path; "
+        "from endstone_endkeep.worker.client import RepositoryWorkerClient; "
+        "c=RepositoryWorkerClient.connect_or_start(Path(sys.argv[1]), priority='background'); "
+        "print(c.runtime.pid, flush=True)"
+    )
+    controller = subprocess.run([sys.executable, "-c", code, str(storage)], capture_output=True, text=True, timeout=15)
+    assert controller.returncode == 0, controller.stderr
+    pid = int(controller.stdout.strip())
+    try:
+        deadline = time.monotonic() + 8
+        while RepositoryWorkerClient._pid_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not RepositoryWorkerClient._pid_alive(pid), "worker survived its controller"
+        assert not (storage / "worker-runtime.json").exists()
+    finally:
+        runtime = RepositoryWorkerClient._load_runtime(storage / "worker-runtime.json")
+        if runtime is not None:
+            RepositoryWorkerClient(storage / "worker-runtime.json", runtime, desired_priority="background").shutdown()
+
+
+def test_transient_ping_timeout_reconnects_same_worker(tmp_path: Path, monkeypatch) -> None:
+    from endstone_endkeep.worker.client import WorkerTimeout
+
+    client = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+    original = RepositoryWorkerClient._rpc
+    attempts = 0
+
+    def rpc(self, payload, **kwargs):
+        nonlocal attempts
+        if payload["command"] == "ping":
+            attempts += 1
+            if attempts == 1:
+                raise WorkerTimeout("injected short timeout")
+        return original(self, payload, **kwargs)
+
+    try:
+        monkeypatch.setattr(RepositoryWorkerClient, "_rpc", rpc)
+        adopted = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+        assert adopted.runtime.instance_id == client.runtime.instance_id
+        assert attempts >= 2
+    finally:
+        client.shutdown()
+
+
+def test_second_worker_cannot_replace_runtime(tmp_path: Path) -> None:
+    client = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+    try:
+        before = (tmp_path / "worker-runtime.json").read_bytes()
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "endstone_endkeep.worker",
+                "--storage-root",
+                str(tmp_path),
+                "--runtime-file",
+                str(tmp_path / "worker-runtime.json"),
+                "--priority",
+                "background",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert result.returncode != 0
+        assert (tmp_path / "worker-runtime.json").read_bytes() == before
+        assert client.refresh()["worker"]["pid"] == client.runtime.pid
+    finally:
+        client.shutdown()
+
+
+def test_reload_adopts_busy_worker_and_stale_detach_cannot_release_it(tmp_path: Path) -> None:
+    first = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+    try:
+        first.configure(_settings())
+        assert first.start_verify(deep=True)
+        first.detach()
+        second = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+        assert second.runtime.instance_id == first.runtime.instance_id
+        with pytest.raises(WorkerError, match="controller has changed"):
+            first.detach()
+        deadline = time.monotonic() + 5
+        result = None
+        while result is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+            result = second.poll()
+        assert result is not None
+        assert second.ack_result(result[0])
+        second.shutdown()
+    finally:
+        runtime = RepositoryWorkerClient._load_runtime(tmp_path / "worker-runtime.json")
+        if runtime is not None:
+            RepositoryWorkerClient(tmp_path / "worker-runtime.json", runtime, desired_priority="background").shutdown()
+
+
+def test_stale_runtime_pid_identity_does_not_touch_unrelated_process(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    first = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+    first.shutdown()
+    RepositoryWorkerClient._wait_for_exit(first.runtime.pid, tmp_path / "worker-runtime.json")
+    stale = replace(first.runtime, pid=os.getpid(), process_identity="different-process-start", port=1)
+    (tmp_path / "worker-runtime.json").write_text(json.dumps(stale.to_dict()))
+    second = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+    try:
+        assert second.runtime.pid != os.getpid()
+        assert RepositoryWorkerClient._pid_alive(os.getpid())
+    finally:
+        second.shutdown()
+
+
+def test_unresponsive_worker_fails_bounded_without_replacement(tmp_path: Path, monkeypatch) -> None:
+    from endstone_endkeep.worker.client import WorkerTimeout
+
+    first = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+    saved = (tmp_path / "worker-runtime.json").read_bytes()
+    original = RepositoryWorkerClient._rpc
+
+    def rpc(self, payload, **kwargs):
+        if payload["command"] == "ping":
+            raise WorkerTimeout("unresponsive")
+        return original(self, payload, **kwargs)
+
+    try:
+        monkeypatch.setattr(RepositoryWorkerClient, "_rpc", rpc)
+        monkeypatch.setattr(RepositoryWorkerClient, "START_TIMEOUT_SECONDS", 0.2)
+        started = time.monotonic()
+        with pytest.raises(WorkerError, match="ownership is unproven"):
+            RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
+        assert time.monotonic() - started < 1
+        assert (tmp_path / "worker-runtime.json").read_bytes() == saved
+        assert first.refresh()["worker"]["pid"] == first.runtime.pid
+    finally:
+        first.shutdown()
+
+
+def test_detached_busy_worker_drains_before_exit(tmp_path: Path, monkeypatch) -> None:
+    from endstone_endkeep.repository.maintenance import RepositoryJobResult
+
+    app = WorkerApplication(tmp_path, priority="background")
+    service = SimpleNamespace(busy=True, poll=lambda: None)
+    app.service = service
+    app.handle({"command": "detach"})
+    monkeypatch.setattr("endstone_endkeep.worker.server._HANDOFF_GRACE_SECONDS", 0.1)
+    stopped = threading.Event()
+    app.set_stop_callback(stopped.set)
+    thread = threading.Thread(target=app.monitor, daemon=True)
+    thread.start()
+    assert not stopped.wait(0.3)
+    with app._lock:
+        service.busy = False
+        service.poll = lambda: RepositoryJobResult(kind="verify")
+    assert stopped.wait(2)
+    replay = WorkerApplication(tmp_path, priority="background")
+    assert replay.results[0]["payload"]["kind"] == "verify"
 
 
 def _settings(*, verify_mode: str = "normal") -> dict[str, Any]:

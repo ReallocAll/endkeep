@@ -190,7 +190,14 @@ class EndKeepPlugin(Plugin):
             "keep_last": config.retention.keep_last,
             "verify_mode": config.verify.mode,
         }
-        recovery = repository.configure(settings)
+        try:
+            recovery = repository.configure(settings)
+        except Exception:
+            try:
+                repository.detach()
+            except WorkerError:
+                pass
+            raise
         health = repository.status.get("health", {})
         if health.get("status") == "FAILED":
             self.logger.critical(
@@ -261,10 +268,15 @@ class EndKeepPlugin(Plugin):
         self._pending_capture_required_bytes = 0
         self._pending_result_ack = None
         self._worker_start_retry_ticks = 0
-        if capture is not None:
-            capture.close()
-        if repository is not None:
-            repository.detach()
+        try:
+            if capture is not None:
+                capture.close()
+        finally:
+            if repository is not None:
+                try:
+                    repository.detach()
+                except WorkerError as exc:
+                    self.logger.warning(f"Worker handoff RPC failed; controller death detection remains active: {exc}")
 
     def _tick(self) -> None:
         capture = self._capture

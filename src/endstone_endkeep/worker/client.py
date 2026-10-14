@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .process import process_alive, process_identity
 from .protocol import PROTOCOL_VERSION, RuntimeInfo, package_version, receive_message, send_message
 
 
@@ -42,39 +43,50 @@ class RepositoryWorkerClient:
         self.runtime = runtime
         self.desired_priority = desired_priority
         self._status: dict[str, Any] = {"job": {"state": "idle"}}
+        self._controller = {
+            "pid": os.getpid(),
+            "identity": process_identity(os.getpid()),
+            "session": uuid.uuid4().hex,
+        }
 
     @classmethod
     def connect_or_start(cls, storage_root: Path, *, priority: str) -> RepositoryWorkerClient:
+        storage_root = storage_root.resolve()
         storage_root.mkdir(parents=True, exist_ok=True)
         runtime_path = storage_root / "worker-runtime.json"
 
         existing = cls._load_runtime(runtime_path)
         if existing is not None:
             if existing.protocol != PROTOCOL_VERSION:
-                if cls._pid_alive(existing.pid):
+                if process_alive(existing.pid, existing.process_identity):
                     raise WorkerError(
                         f"repository worker protocol mismatch: {existing.protocol} != {PROTOCOL_VERSION}; "
                         "restart the server after the active worker has exited"
                     )
-                runtime_path.unlink(missing_ok=True)
                 existing = None
 
         if existing is not None:
             client = cls(runtime_path, existing, desired_priority=priority)
-            try:
-                response = client._rpc({"command": "ping"})
-            except Exception as exc:
-                if cls._pid_alive(existing.pid):
-                    raise WorkerError(
-                        f"repository worker pid {existing.pid} is alive but not responding; "
-                        "refusing to start a second worker"
-                    ) from exc
-                runtime_path.unlink(missing_ok=True)
-            else:
+            deadline = time.monotonic() + cls.START_TIMEOUT_SECONDS
+            last_error: Exception | None = None
+            while process_alive(existing.pid, existing.process_identity) and time.monotonic() < deadline:
+                try:
+                    response = client._rpc({"command": "ping"})
+                    if Path(existing.storage_root).resolve() != storage_root:
+                        raise WorkerRejected("repository worker runtime points at a different storage root")
+                    if response["status"]["worker"]["pid"] != existing.pid:
+                        raise WorkerRejected("repository worker PID does not match runtime")
+                    if response["status"]["worker"].get("draining"):
+                        time.sleep(0.1)
+                        continue
+                    client._attach()
+                except WorkerRejected:
+                    raise
+                except WorkerError as exc:
+                    last_error = exc
+                    time.sleep(0.1)
+                    continue
                 client._status = response["status"]
-                if Path(existing.storage_root).resolve() != storage_root.resolve():
-                    raise WorkerError("repository worker runtime points at a different storage root")
-
                 needs_restart = existing.priority != priority or existing.version != package_version()
                 can_restart = needs_restart and not client.busy
                 if can_restart:
@@ -82,16 +94,26 @@ class RepositoryWorkerClient:
                     cls._wait_for_exit(existing.pid, runtime_path)
                 else:
                     return client
+                break
+            else:
+                if process_alive(existing.pid, existing.process_identity):
+                    raise WorkerError(
+                        f"repository worker pid {existing.pid} did not respond within the reconnect deadline; "
+                        f"identity={existing.process_identity!r}, runtime={runtime_path}; "
+                        "writer ownership is unproven; refusing to start a second worker"
+                    ) from last_error
 
         return cls._start(storage_root, runtime_path, priority)
 
     @classmethod
     def _start(cls, storage_root: Path, runtime_path: Path, priority: str) -> RepositoryWorkerClient:
-        runtime_path.unlink(missing_ok=True)
         env = os.environ.copy()
         env["PYTHONPATH"] = os.pathsep.join(sys.path)
         env.pop("LD_PRELOAD", None)
 
+        owner = {"pid": os.getpid(), "identity": process_identity(os.getpid()), "session": uuid.uuid4().hex}
+        if owner["identity"] is None:
+            raise WorkerError("cannot verify controller process identity on this platform")
         command = [
             sys.executable,
             "-m",
@@ -102,6 +124,12 @@ class RepositoryWorkerClient:
             str(runtime_path),
             "--priority",
             priority,
+            "--controller-pid",
+            str(owner["pid"]),
+            "--controller-identity",
+            str(owner["identity"]),
+            "--controller-session",
+            str(owner["session"]),
         ]
         kwargs: dict[str, Any] = {
             "env": env,
@@ -129,22 +157,34 @@ class RepositoryWorkerClient:
         deadline = time.monotonic() + cls.START_TIMEOUT_SECONDS
         last_error: Exception | None = None
         while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise WorkerError(f"repository worker exited during startup with code {process.returncode}")
             runtime = cls._load_runtime(runtime_path)
-            if runtime is not None:
+            if (
+                runtime is not None
+                and runtime.protocol == PROTOCOL_VERSION
+                and process_alive(runtime.pid, runtime.process_identity)
+            ):
                 client = cls(runtime_path, runtime, desired_priority=priority)
                 try:
                     response = client._rpc({"command": "ping"})
+                    if Path(runtime.storage_root).resolve() != storage_root.resolve():
+                        raise WorkerRejected("repository worker storage root mismatch")
+                    client._attach()
+                except WorkerRejected:
+                    raise
                 except Exception as exc:
                     last_error = exc
                 else:
                     client._status = response["status"]
                     return client
+            if process.poll() is not None and runtime is None:
+                raise WorkerError(f"repository worker exited during startup with code {process.returncode}")
             time.sleep(0.05)
 
-        process.terminate()
         raise WorkerError("repository worker did not become ready before the startup deadline") from last_error
+
+    def _attach(self) -> None:
+        response = self._rpc({"command": "attach"})
+        self._status = response["status"]
 
     @staticmethod
     def _load_runtime(path: Path) -> RuntimeInfo | None:
@@ -155,49 +195,13 @@ class RepositoryWorkerClient:
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
-        if pid <= 0:
-            return False
-        if os.name == "nt":
-            # os.kill(pid, 0) calls TerminateProcess on Windows: never use it
-            # for liveness checks. Denied process access is treated as alive,
-            # avoiding a second writer to an active repository.
-            import ctypes
-            from ctypes import wintypes
-
-            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-            kernel32.OpenProcess.restype = wintypes.HANDLE
-            kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
-            kernel32.WaitForSingleObject.restype = wintypes.DWORD
-            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-            kernel32.CloseHandle.restype = wintypes.BOOL
-
-            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
-            if not handle:
-                return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: PID absent
-            try:
-                # WAIT_OBJECT_0 means exited; WAIT_TIMEOUT means still active.
-                # Treat WAIT_FAILED as alive to preserve single-writer safety.
-                return kernel32.WaitForSingleObject(handle, 0) != 0
-            finally:
-                kernel32.CloseHandle(handle)
-
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        except OSError:
-            return False
-        return True
+        return process_alive(pid)
 
     @classmethod
     def _wait_for_exit(cls, pid: int, runtime_path: Path) -> None:
         deadline = time.monotonic() + cls.START_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if not cls._pid_alive(pid):
-                runtime_path.unlink(missing_ok=True)
                 return
             time.sleep(0.05)
         raise WorkerError(f"repository worker pid {pid} did not exit cleanly")
@@ -206,6 +210,7 @@ class RepositoryWorkerClient:
         request = dict(payload)
         request["protocol"] = PROTOCOL_VERSION
         request["token"] = self.runtime.token
+        request["controller"] = self._controller
         rpc_timeout = self.RPC_TIMEOUT_SECONDS if timeout is None else timeout
         try:
             with socket.create_connection(
@@ -374,6 +379,4 @@ class RepositoryWorkerClient:
         self._rpc({"command": "shutdown"})
 
     def detach(self) -> None:
-        # The worker intentionally survives plugin reloads. The next plugin
-        # instance adopts the same runtime through worker-runtime.json.
-        return None
+        self._rpc({"command": "detach"}, timeout=self.AUTO_CONTROL_TIMEOUT_SECONDS)

@@ -7,7 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_MESSAGE_BYTES = 1024 * 1024
 
 
@@ -28,6 +28,7 @@ class RuntimeInfo:
     instance_id: str
     storage_root: str
     priority: str
+    process_identity: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -43,6 +44,7 @@ class RuntimeInfo:
             instance_id=str(raw["instance_id"]),
             storage_root=str(raw["storage_root"]),
             priority=str(raw["priority"]),
+            process_identity=raw.get("process_identity"),
         )
 
     @classmethod

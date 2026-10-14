@@ -1,4 +1,4 @@
-"""Isolated smoke test for Amulet-LevelDB 3.0.7a0 experimental manylinux wheels."""
+"""Isolated smoke test for Amulet-LevelDB 3.0.8a1 experimental manylinux wheels."""
 
 from importlib.metadata import version
 from pathlib import Path
@@ -8,7 +8,7 @@ from amulet.leveldb import LevelDB
 
 
 def main() -> None:
-    assert version("amulet-leveldb").split("+", 1)[0] == "3.0.7a0"
+    assert version("amulet-leveldb").split("+", 1)[0] == "3.0.8a1"
     expected = {b"\x00": b"alpha", b"\x02": b"bravo", b"\xff": b"\x00\xff"}
     with TemporaryDirectory(prefix="amulet-backport-") as tmp:
         location = Path(tmp) / "db"
@@ -36,3 +36,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

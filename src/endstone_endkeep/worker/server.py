@@ -21,9 +21,11 @@ from endstone_endkeep.repository.maintenance import RepositoryService
 from endstone_endkeep.repository.progress import ProgressTracker
 from endstone_endkeep.repository.recovery import StartupRecovery
 
+from .process import process_alive, process_identity
 from .protocol import PROTOCOL_VERSION, RuntimeInfo, package_version, receive_message, send_message
 
 _IDLE_EXIT_SECONDS = 300.0
+_HANDOFF_GRACE_SECONDS = 10.0
 _PRIORITY_NICE = {
     "conservative": 15,
     "background": 8,
@@ -52,6 +54,17 @@ class WorkerApplication:
         self._management_requests: dict[str, tuple[str, ...]] = {}
         self.last_contact = time.monotonic()
         self.shutdown_requested = False
+        self.controller: dict[str, Any] | None = None
+        self.detached_at: float | None = None
+        self._next_owner_check = 0.0
+        self._results_path = storage_root / "worker-results.json"
+        self._results_dirty = False
+        self._next_save_retry = 0.0
+        if self._results_path.exists():
+            saved = json.loads(self._results_path.read_text(encoding="utf-8"))
+            self.results.extend(saved["results"])
+            self._next_result_id = int(saved["next_result_id"])
+            self._last_acked_result_id = int(saved["last_acked_result_id"])
         self._lock = threading.RLock()
         self._stop_callback = lambda: None
 
@@ -64,6 +77,30 @@ class WorkerApplication:
             command = request.get("command")
             if command == "ping":
                 return {"ok": True, "status": self._status_locked()}
+            if command == "attach":
+                owner = request.get("controller")
+                if self.shutdown_requested:
+                    return {"ok": False, "error": "repository worker is draining"}
+                if not isinstance(owner, dict) or not owner.get("identity") or not owner.get("session"):
+                    return {"ok": False, "error": "controller process identity is required"}
+                if not process_alive(int(owner["pid"]), str(owner["identity"])):
+                    return {"ok": False, "error": "controller process has exited"}
+                previous = self.controller
+                if previous is not None and self.detached_at is None:
+                    same_process = (previous["pid"], previous["identity"]) == (owner["pid"], owner["identity"])
+                    if not same_process and process_alive(previous["pid"], previous["identity"]):
+                        return {"ok": False, "error": "repository worker has another live controller"}
+                self.controller = dict(owner)
+                self.detached_at = None
+                return {"ok": True, "status": self._status_locked()}
+            if command not in ("status", "poll", "shutdown", "list_snapshots") and self.controller is not None:
+                if request.get("controller") != self.controller or self.detached_at is not None:
+                    return {"ok": False, "error": "repository worker controller has changed or detached"}
+            if command == "detach":
+                self.detached_at = time.monotonic()
+                return {"ok": True, "status": self._status_locked()}
+            if self.shutdown_requested and command not in ("status", "poll", "list_snapshots", "ack_result"):
+                return {"ok": False, "error": "repository worker is draining"}
             if command == "configure":
                 return self._configure_locked(request.get("settings"))
             if command == "status":
@@ -117,6 +154,7 @@ class WorkerApplication:
                 elif self.results and int(self.results[0]["id"]) == result_id:
                     self.results.popleft()
                     self._last_acked_result_id = result_id
+                    self._save_results()
                     accepted = True
                 else:
                     accepted = False
@@ -265,7 +303,14 @@ class WorkerApplication:
 
     def _ready_for_new_job_locked(self) -> bool:
         service = self.service
-        return service is not None and not service.busy and not self.results and self.pending_settings is None
+        return (
+            not self.shutdown_requested
+            and self.detached_at is None
+            and service is not None
+            and not service.busy
+            and not self.results
+            and self.pending_settings is None
+        )
 
     def _require_service(self) -> RepositoryService:
         if self.service is None:
@@ -280,6 +325,9 @@ class WorkerApplication:
                 "pid": os.getpid(),
                 "priority": self.priority,
                 "alive": True,
+                "controller": self.controller,
+                "detached": self.detached_at is not None,
+                "draining": self.shutdown_requested,
             },
             "job": self.tracker.snapshot().to_dict(),
             "job_occupied": service is not None and service.busy,
@@ -331,6 +379,16 @@ class WorkerApplication:
             time.sleep(0.1)
             with self._lock:
                 service = self.service
+                now = time.monotonic()
+                if now >= self._next_owner_check:
+                    self._next_owner_check = now + 1.0
+                    owner = self.controller
+                    if owner is not None and not process_alive(owner["pid"], owner["identity"]):
+                        self.shutdown_requested = True
+                if self.detached_at is not None and now - self.detached_at >= _HANDOFF_GRACE_SECONDS:
+                    self.shutdown_requested = True
+                if self.controller is None and now - self.last_contact >= _IDLE_EXIT_SECONDS:
+                    self.shutdown_requested = True
                 if service is not None:
                     try:
                         result = service.poll()
@@ -349,13 +407,26 @@ class WorkerApplication:
                             self._active_request_id = None
 
                 service = self.service
-                if self.pending_settings is not None and service is not None and not service.busy and not self.results:
+                if (
+                    not self.shutdown_requested
+                    and self.pending_settings is not None
+                    and service is not None
+                    and not service.busy
+                    and not self.results
+                ):
                     self._apply_settings_locked(self.pending_settings)
                     service = self.service
 
+                if self._results_dirty and now >= self._next_save_retry:
+                    try:
+                        self._save_results()
+                    except OSError as exc:
+                        self._next_save_retry = now + 1.0
+                        print(
+                            f"Could not persist worker results; retaining ownership: {exc}", file=sys.stderr, flush=True
+                        )
                 busy = service is not None and service.busy
-                idle_too_long = time.monotonic() - self.last_contact >= _IDLE_EXIT_SECONDS
-                should_stop = self.shutdown_requested or (idle_too_long and not busy and not self.results)
+                should_stop = self.shutdown_requested and not busy and not self._results_dirty
             if should_stop:
                 self._stop_callback()
                 return
@@ -368,6 +439,18 @@ class WorkerApplication:
             }
         )
         self._next_result_id += 1
+        self._results_dirty = True
+
+    def _save_results(self) -> None:
+        _write_json(
+            self._results_path,
+            {
+                "results": list(self.results),
+                "next_result_id": self._next_result_id,
+                "last_acked_result_id": self._last_acked_result_id,
+            },
+        )
+        self._results_dirty = False
 
     def close(self) -> None:
         with self._lock:
@@ -434,10 +517,10 @@ def _apply_priority(priority: str) -> None:
         )
 
 
-def _write_runtime(path: Path, runtime: RuntimeInfo) -> None:
+def _write_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    payload = json.dumps(runtime.to_dict(), indent=2, sort_keys=True) + "\n"
+    payload = json.dumps(value, indent=2, sort_keys=True) + "\n"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -468,10 +551,17 @@ def _remove_runtime(path: Path, instance_id: str) -> None:
     path.unlink(missing_ok=True)
 
 
+def _write_runtime(path: Path, runtime: RuntimeInfo) -> None:
+    _write_json(path, runtime.to_dict())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="EndKeep repository worker")
     parser.add_argument("--storage-root", required=True)
     parser.add_argument("--runtime-file", required=True)
+    parser.add_argument("--controller-pid", type=int)
+    parser.add_argument("--controller-identity")
+    parser.add_argument("--controller-session")
     parser.add_argument(
         "--priority",
         required=True,
@@ -483,6 +573,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     storage_root = Path(args.storage_root).resolve()
+    # Held until service.close() has joined the repository executor.
+    with RepositoryLock(storage_root / "worker-control"):
+        return _serve(args, storage_root)
+
+
+def _serve(args: argparse.Namespace, storage_root: Path) -> int:
     runtime_file = Path(args.runtime_file).resolve()
     storage_root.mkdir(parents=True, exist_ok=True)
     _apply_priority(args.priority)
@@ -490,6 +586,19 @@ def main(argv: list[str] | None = None) -> int:
     token = secrets.token_hex(32)
     instance_id = uuid.uuid4().hex
     app = WorkerApplication(storage_root, priority=args.priority)
+    if args.controller_pid is not None:
+        attached = app.handle(
+            {
+                "command": "attach",
+                "controller": {
+                    "pid": args.controller_pid,
+                    "identity": args.controller_identity,
+                    "session": args.controller_session,
+                },
+            }
+        )
+        if not attached["ok"]:
+            raise RuntimeError(attached["error"])
 
     with _ThreadingServer(("127.0.0.1", 0), _RequestHandler) as server:
         server.app = app  # type: ignore[attr-defined]
@@ -504,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             instance_id=instance_id,
             storage_root=str(storage_root),
             priority=args.priority,
+            process_identity=process_identity(os.getpid()),
         )
         _write_runtime(runtime_file, runtime)
 
