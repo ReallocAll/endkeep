@@ -63,7 +63,7 @@ jobs:
           git -C amulet-src diff --check
       - name: Setup host Python
         if: matrix.python != '3.15'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - name: Install cibuildwheel
