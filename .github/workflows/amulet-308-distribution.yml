@@ -1,0 +1,264 @@
+name: Amulet-LevelDB 3.0.8a1 compatibility distribution
+
+on:
+  push:
+    branches: [build/amulet-leveldb-3.0.8a1-compat]
+    paths:
+      - .github/workflows/amulet-308-distribution.yml
+      - .github/scripts/amulet_leveldb_308_smoke.py
+  workflow_dispatch:
+
+concurrency:
+  group: amulet-308-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 85
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, python: '3.12', selector: cp312-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.13', selector: cp313-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.14', selector: cp314-manylinux_x86_64 }
+          - { os: ubuntu-24.04, python: '3.15', selector: cp315-manylinux_x86_64 }
+          - { os: windows-2025, python: '3.12', selector: cp312-win_amd64 }
+          - { os: windows-2025, python: '3.13', selector: cp313-win_amd64 }
+          - { os: windows-2025, python: '3.14', selector: cp314-win_amd64 }
+          - { os: windows-2025, python: '3.15', selector: cp315-win_amd64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout test harness
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact Amulet Utils 1.1.8a0
+        uses: actions/checkout@v7
+        with:
+          repository: Amulet-Team/Amulet-Utils
+          ref: 1655a566b3d7c1f75548b9f61facdf7db0203676
+          path: utils-src
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact Amulet LevelDB 3.0.8a1
+        uses: actions/checkout@v7
+        with:
+          repository: Amulet-Team/Amulet-LevelDB
+          ref: 18e624bde4b56bfef1acdd4020d88c125636c5a1
+          path: leveldb-src
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Backport Python metadata only and stage smoke tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for source in (Path("utils-src"), Path("leveldb-src")):
+              pyproject = source / "pyproject.toml"
+              data = pyproject.read_text(encoding="utf-8")
+              old = 'requires-python = ">=3.14"'
+              assert data.count(old) == 1, source
+              pyproject.write_text(data.replace(old, 'requires-python = ">=3.12"'), encoding="utf-8")
+          PY
+          cp .github/scripts/amulet_leveldb_308_smoke.py leveldb-src/tests/test_endkeep_compat_308.py
+          git -C utils-src diff --check
+          git -C leveldb-src diff --check
+
+      - name: Setup host Python 3.14 (cibuildwheel supplies target interpreters)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install cibuildwheel
+        run: python -m pip install 'cibuildwheel==4.2.0'
+
+      - name: Build Amulet Utils dependency with matching ABI
+        env:
+          CIBW_BEFORE_BUILD: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_TEST_COMMAND: 'python -c "import amulet.utils; print(\"Amulet Utils import OK\")"'
+        run: |
+          mkdir -p dist-utils
+          cd utils-src
+          python -m cibuildwheel --only '${{ matrix.selector }}' --output-dir ../dist-utils .
+          test "$(find ../dist-utils -maxdepth 1 -name '*.whl' | wc -l)" -eq 1
+
+      - name: Build LevelDB against exact locally built Utils
+        env:
+          CIBW_BEFORE_BUILD: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_BEFORE_TEST: 'python -m pip install "cmake>=4.1,<5"'
+          CIBW_TEST_COMMAND: 'python {project}/tests/test_endkeep_compat_308.py && python {project}/tests/test_db.py'
+          CIBW_TEST_SOURCES: tests
+        run: |
+          mkdir -p leveldb-src/deps dist-leveldb
+          cp dist-utils/*.whl leveldb-src/deps/
+          cd leveldb-src
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            export CIBW_ENVIRONMENT="PIP_FIND_LINKS=$(cygpath -w "$(pwd)/deps")"
+          else
+            export CIBW_ENVIRONMENT="PIP_FIND_LINKS=/project/deps"
+          fi
+          python -m cibuildwheel --only '${{ matrix.selector }}' --output-dir ../dist-leveldb .
+          test "$(find ../dist-leveldb -maxdepth 1 -name '*.whl' | wc -l)" -eq 1
+
+      - name: Fresh Python environment integration test
+        uses: astral-sh/setup-uv@v7
+
+      - name: Verify exact dependency resolution and EndKeep database API
+        run: |
+          uv venv --python '${{ matrix.python }}' .venv
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            PYTHON=.venv/Scripts/python.exe
+          else
+            PYTHON=.venv/bin/python
+          fi
+          uv pip install --python "$PYTHON" --prerelease allow dist-utils/*.whl dist-leveldb/*.whl
+          uv pip check --python "$PYTHON"
+          "$PYTHON" .github/scripts/amulet_leveldb_308_smoke.py
+          "$PYTHON" - <<'PY'
+          from importlib.metadata import distribution, version
+          import sys
+          assert sys.version_info[:2] == tuple(map(int, '${{ matrix.python }}'.split('.')))
+          assert version("amulet-leveldb").split("+")[0] == "3.0.8a1"
+          assert version("amulet-utils").split("+")[0] == "1.1.8a0"
+          for name in ("amulet-leveldb", "amulet-utils"):
+              d = distribution(name)
+              assert d.metadata["Requires-Python"] == ">=3.12", (name, d.metadata["Requires-Python"])
+              print(name, d.version)
+          PY
+
+      - name: Upload ABI-matched libraries
+        uses: actions/upload-artifact@v7
+        with:
+          name: amulet308-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            dist-utils/*.whl
+            dist-leveldb/*.whl
+          if-no-files-found: error
+          retention-days: 30
+
+  verify-and-release:
+    name: Verify eight platform pairs and publish standalone dependency release
+    needs: wheels
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout pinned upstream licenses
+        uses: actions/checkout@v7
+        with:
+          repository: Amulet-Team/Amulet-LevelDB
+          ref: 18e624bde4b56bfef1acdd4020d88c125636c5a1
+          path: leveldb-license
+          persist-credentials: false
+
+      - name: Download all verified dependency Wheels
+        uses: actions/download-artifact@v8
+        with:
+          pattern: amulet308-*
+          path: raw
+          merge-multiple: false
+
+      - name: Audit wheel ABI tags, versions, metadata and SHA256
+        run: |
+          mkdir -p dist
+          python - <<'PY'
+          from collections import Counter
+          from hashlib import sha256
+          from pathlib import Path
+          from zipfile import ZipFile
+          import json
+          raw = Path("raw")
+          inputs = sorted(raw.glob("**/*.whl"))
+          assert len(inputs) == 16, [p.as_posix() for p in inputs]
+          seen = Counter()
+          for file in inputs:
+              name = file.name
+              if name.startswith("amulet_leveldb-"):
+                  lib, expected_version = "amulet-leveldb", "3.0.8a1"
+              elif name.startswith("amulet_utils-"):
+                  lib, expected_version = "amulet-utils", "1.1.8a0"
+              else:
+                  raise ValueError(f"Unknown package: {name}")
+              abi = next((v for v in ("cp312", "cp313", "cp314", "cp315") if f"-{v}-{v}-" in name), None)
+              assert abi, name
+              os = "windows" if "-win_amd64.whl" in name else "linux" if "manylinux" in name else None
+              assert os, name
+              seen[(lib, abi, os)] += 1
+              with ZipFile(file) as zf:
+                  assert zf.testzip() is None, name
+                  meta_file = next(p for p in zf.namelist() if p.endswith(".dist-info/METADATA"))
+                  metadata = zf.read(meta_file).decode("utf-8")
+                  assert f"Name: {lib}" in metadata, (lib, metadata[:200])
+                  assert f"Version: {expected_version}" in metadata, (name, metadata[:300])
+                  assert "Requires-Python: >=3.12" in metadata, (name, metadata[:300])
+                  assert any("LICENSE" in p for p in zf.namelist()), name
+              dest = Path("dist") / name
+              assert not dest.exists(), name
+              dest.write_bytes(file.read_bytes())
+          expected = {(lib, abi, os) for lib in ("amulet-leveldb", "amulet-utils")
+                      for abi in ("cp312", "cp313", "cp314", "cp315") for os in ("windows", "linux")}
+          assert set(seen) == expected and all(count == 1 for count in seen.values()), seen
+          # Re-distribute the original terms and notice, without sublicensing.
+          (Path("dist") / "LICENSE-Amulet-Team.txt").write_bytes(
+              Path("leveldb-license/LICENSE").read_bytes())
+          manifest = {
+              "upstream_leveldb": "Amulet-Team/Amulet-LevelDB@18e624bde4b56bfef1acdd4020d88c125636c5a1",
+              "upstream_utils": "Amulet-Team/Amulet-Utils@1655a566b3d7c1f75548b9f61facdf7db0203676",
+              "python": ["3.12", "3.13", "3.14", "3.15"],
+              "platforms": ["Linux x86-64 (manylinux_2_34)", "Windows x86-64"],
+              "metadata_patch": "requires-python >=3.14 -> >=3.12 in both packages",
+              "upstream_implementation_changes": "none",
+          }
+          (Path("dist") / "PROVENANCE.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          files = sorted(p for p in Path("dist").iterdir() if p.is_file())
+          (Path("dist") / "SHA256SUMS").write_text(
+              "".join(f"{sha256(file.read_bytes()).hexdigest()}  {file.name}\n" for file in files))
+          print((Path("dist") / "SHA256SUMS").read_text())
+          PY
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      - name: Upload audited Wheel bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: amulet-leveldb-308a1-compat-audited
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish standalone prerelease only, never EndKeep
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="amulet-leveldb-3.0.8a1-compat-cp312-cp315"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists; refusing to overwrite artifacts."
+            exit 1
+          fi
+          cat > /tmp/notes.md <<'NOTES'
+          Unofficial Amulet-LevelDB 3.0.8a1 compatibility Wheels for CPython 3.12, 3.13, 3.14 and 3.15 on Linux/Windows x86-64.
+
+          Built from Amulet-Team/Amulet-LevelDB tag 3.0.8a1 (commit 18e624bde4b56bfef1acdd4020d88c125636c5a1), and Amulet-Team/Amulet-Utils tag 1.1.8a0 (commit 1655a566b3d7c1f75548b9f61facdf7db0203676).
+
+          The Python metadata floor is relaxed to 3.12; the upstream native implementation is unmodified. Amulet-Utils is provided for all ABIs because it is a new native dependency of LevelDB 3.0.8a1. All 16 Wheels passed native import and EndKeep API smoke tests, upstream database tests, and clean environment dependency resolution.
+
+          Use the ABI- and platform-matched Amulet-Utils and Amulet-LevelDB Wheels together. Linux Wheels follow upstream's manylinux_2_34 floor (glibc >= 2.34).
+
+          Amulet Team License 1.0.0 applies. Please review the noncommercial/noncompete terms. These are independently redistributed dependency builds, **not an EndKeep plugin release**. EndKeep v0.3.1 remains unchanged and continues to depend on Amulet-LevelDB 3.0.7a0.
+          NOTES
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Amulet-LevelDB 3.0.8a1 CPython 3.12–3.15 compatibility Wheels" \
+            --prerelease \
+            --notes-file /tmp/notes.md \
+            dist/*
