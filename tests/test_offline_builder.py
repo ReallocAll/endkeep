@@ -78,10 +78,7 @@ def test_offline_requirements_preserve_tqdm() -> None:
     assert len(requirements) == 1
 
     specifier = requirements[0].specifier
-    assert any(
-        item.operator == ">=" and Version("4.70") <= Version(item.version) < Version("5")
-        for item in specifier
-    )
+    assert any(item.operator == ">=" and Version("4.70") <= Version(item.version) < Version("5") for item in specifier)
     assert any(item.operator == "<" and Version(item.version) == Version("5") for item in specifier)
     assert "5" not in specifier
 
