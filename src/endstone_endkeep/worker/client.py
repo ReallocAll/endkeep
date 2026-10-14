@@ -76,12 +76,15 @@ class RepositoryWorkerClient:
                         raise WorkerRejected("repository worker runtime points at a different storage root")
                     if response["status"]["worker"]["pid"] != existing.pid:
                         raise WorkerRejected("repository worker PID does not match runtime")
-                    if response["status"]["worker"].get("draining"):
+                    if response["status"]["worker"].get("draining") and not response["status"]["job_occupied"]:
                         time.sleep(0.1)
                         continue
                     client._attach()
-                except WorkerRejected:
-                    raise
+                except WorkerRejected as exc:
+                    if "worker is draining" not in str(exc):
+                        raise
+                    time.sleep(0.1)
+                    continue
                 except WorkerError as exc:
                     last_error = exc
                     time.sleep(0.1)

@@ -79,7 +79,7 @@ class WorkerApplication:
                 return {"ok": True, "status": self._status_locked()}
             if command == "attach":
                 owner = request.get("controller")
-                if self.shutdown_requested:
+                if self.shutdown_requested and (self.service is None or not self.service.busy):
                     return {"ok": False, "error": "repository worker is draining"}
                 if not isinstance(owner, dict) or not owner.get("identity") or not owner.get("session"):
                     return {"ok": False, "error": "controller process identity is required"}
@@ -93,6 +93,7 @@ class WorkerApplication:
                         return {"ok": False, "error": "repository worker has another live controller"}
                 self.controller = dict(owner)
                 self.detached_at = None
+                self.shutdown_requested = False
                 return {"ok": True, "status": self._status_locked()}
             if command not in ("status", "poll", "list_snapshots") and self.controller is not None:
                 if request.get("controller") != self.controller or self.detached_at is not None:

@@ -11,6 +11,10 @@ repository and receives any saved, unacknowledged results. If a detach
 request cannot be delivered while BDS remains alive, five minutes without
 control traffic also triggers draining.
 
+A verified replacement controller can adopt a draining Worker while its
+task is still active. Once it is idle and exiting, startup waits for the
+instance lock to be released before starting a replacement.
+
 The Worker holds an OS-backed instance lock until repository processing
 has stopped. Existing repository transaction locks and atomic commits
 remain in place. Startup retries temporary communication failures for

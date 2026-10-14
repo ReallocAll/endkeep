@@ -64,6 +64,22 @@ def test_stale_session_cannot_shutdown_successor(tmp_path: Path, monkeypatch) ->
     assert not app.shutdown_requested
 
 
+def test_new_controller_can_adopt_orphan_while_task_is_draining(tmp_path: Path, monkeypatch) -> None:
+    app = WorkerApplication(tmp_path, priority="background")
+    service = SimpleNamespace(busy=True)
+    app.service = service
+    app.controller = {"pid": 111, "identity": "old", "session": "old"}
+    app.shutdown_requested = True
+    monkeypatch.setattr("endstone_endkeep.worker.server.process_alive", lambda pid, *_: pid != 111)
+    monkeypatch.setattr("endstone_endkeep.worker.server.process_identity", lambda _: "new")
+    owner = {"pid": 222, "identity": "new", "session": "new"}
+    response = app.handle({"command": "attach", "controller": owner})
+    assert response["ok"], response
+    assert app.controller == owner
+    assert not app.shutdown_requested
+    assert app.service is service and service.busy
+
+
 def test_ack_write_failure_cannot_be_reported_as_success(tmp_path: Path, monkeypatch) -> None:
     app = WorkerApplication(tmp_path, priority="background")
     app._queue_result({"kind": "pre_capture"})
