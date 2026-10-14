@@ -83,8 +83,9 @@ class WorkerApplication:
                     return {"ok": False, "error": "repository worker is draining"}
                 if not isinstance(owner, dict) or not owner.get("identity") or not owner.get("session"):
                     return {"ok": False, "error": "controller process identity is required"}
-                if not process_alive(int(owner["pid"]), str(owner["identity"])):
-                    return {"ok": False, "error": "controller process has exited"}
+                identity = process_identity(int(owner["pid"]))
+                if identity is None or identity != owner["identity"]:
+                    return {"ok": False, "error": "controller process identity cannot be verified"}
                 previous = self.controller
                 if previous is not None and self.detached_at is None:
                     same_process = (previous["pid"], previous["identity"]) == (owner["pid"], owner["identity"])
@@ -93,7 +94,7 @@ class WorkerApplication:
                 self.controller = dict(owner)
                 self.detached_at = None
                 return {"ok": True, "status": self._status_locked()}
-            if command not in ("status", "poll", "shutdown", "list_snapshots") and self.controller is not None:
+            if command not in ("status", "poll", "list_snapshots") and self.controller is not None:
                 if request.get("controller") != self.controller or self.detached_at is not None:
                     return {"ok": False, "error": "repository worker controller has changed or detached"}
             if command == "detach":
@@ -152,10 +153,13 @@ class WorkerApplication:
             if command == "ack_result":
                 result_id = int(request.get("result_id", 0))
                 if result_id <= self._last_acked_result_id:
+                    if self._results_dirty:
+                        self._save_results()
                     accepted = True
                 elif self.results and int(self.results[0]["id"]) == result_id:
                     self.results.popleft()
                     self._last_acked_result_id = result_id
+                    self._results_dirty = True
                     self._save_results()
                     accepted = True
                 else:
@@ -307,6 +311,7 @@ class WorkerApplication:
         service = self.service
         return (
             not self.shutdown_requested
+            and not self._results_dirty
             and self.detached_at is None
             and service is not None
             and not service.busy
@@ -336,6 +341,7 @@ class WorkerApplication:
             "current_request_id": self._current_request_id_locked(),
             "settings_deferred": self.pending_settings is not None,
             "pending_results": len(self.results),
+            "results_pending_sync": self._results_dirty,
             "health": health.status() if health is not None else {"status": "UNAVAILABLE", "reason": None},
         }
         if include_repository:
@@ -389,7 +395,7 @@ class WorkerApplication:
                         self.shutdown_requested = True
                 if self.detached_at is not None and now - self.detached_at >= _HANDOFF_GRACE_SECONDS:
                     self.shutdown_requested = True
-                if self.controller is None and now - self.last_contact >= _IDLE_EXIT_SECONDS:
+                if now - self.last_contact >= _IDLE_EXIT_SECONDS:
                     self.shutdown_requested = True
                 if service is not None:
                     try:
@@ -416,7 +422,12 @@ class WorkerApplication:
                     and not service.busy
                     and not self.results
                 ):
-                    self._apply_settings_locked(self.pending_settings)
+                    try:
+                        self._apply_settings_locked(self.pending_settings)
+                    except Exception as exc:
+                        self.pending_settings = None
+                        self.shutdown_requested = True
+                        self._queue_result({"kind": "error", "error": f"deferred configuration failed: {exc}"})
                     service = self.service
 
                 if self._results_dirty and now >= self._next_save_retry:

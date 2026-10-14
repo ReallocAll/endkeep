@@ -12,8 +12,109 @@ from typing import Any
 
 import pytest
 
-from endstone_endkeep.worker.client import RepositoryWorkerClient, WorkerError
+from endstone_endkeep.worker.client import RepositoryWorkerClient, WorkerError, WorkerTimeout
 from endstone_endkeep.worker.server import WorkerApplication
+
+
+def _poll(client):
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            return client.poll()
+        except WorkerTimeout:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
+def _ack(client, result_id):
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            return client.ack_result(result_id)
+        except WorkerTimeout:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
+def _shutdown(client):
+    client._attach()
+    client.shutdown()
+    RepositoryWorkerClient._wait_for_exit(client.runtime.pid, client.runtime_path)
+
+
+def test_attach_requires_proven_identity(tmp_path: Path, monkeypatch) -> None:
+    app = WorkerApplication(tmp_path, priority="background")
+    monkeypatch.setattr("endstone_endkeep.worker.server.process_alive", lambda *_: True)
+    monkeypatch.setattr("endstone_endkeep.worker.server.process_identity", lambda _: None)
+    response = app.handle({"command": "attach", "controller": {"pid": 123, "identity": "claimed", "session": "s"}})
+    assert not response["ok"]
+    assert app.controller is None
+
+
+def test_stale_session_cannot_shutdown_successor(tmp_path: Path, monkeypatch) -> None:
+    app = WorkerApplication(tmp_path, priority="background")
+    monkeypatch.setattr("endstone_endkeep.worker.server.process_alive", lambda *_: True)
+    monkeypatch.setattr("endstone_endkeep.worker.server.process_identity", lambda _: "verified")
+    owner = {"pid": 123, "identity": "verified", "session": "new"}
+    assert app.handle({"command": "attach", "controller": owner})["ok"]
+    response = app.handle({"command": "shutdown", "controller": {**owner, "session": "old"}})
+    assert not response["ok"]
+    assert not app.shutdown_requested
+
+
+def test_ack_write_failure_cannot_be_reported_as_success(tmp_path: Path, monkeypatch) -> None:
+    app = WorkerApplication(tmp_path, priority="background")
+    app._queue_result({"kind": "pre_capture"})
+    app._save_results()
+    original = __import__("endstone_endkeep.worker.server", fromlist=["_write_json"])._write_json
+
+    def fail(*_):
+        raise OSError("injected journal write failure")
+
+    monkeypatch.setattr("endstone_endkeep.worker.server._write_json", fail)
+    with pytest.raises(OSError):
+        app.handle({"command": "ack_result", "result_id": 1})
+    with pytest.raises(OSError):
+        app.handle({"command": "ack_result", "result_id": 1})
+    monkeypatch.setattr("endstone_endkeep.worker.server._write_json", original)
+    assert app.handle({"command": "ack_result", "result_id": 1})["accepted"]
+    assert not WorkerApplication(tmp_path, priority="background").results
+
+
+def test_deferred_config_error_does_not_kill_monitor(tmp_path: Path, monkeypatch) -> None:
+    app = WorkerApplication(tmp_path, priority="background")
+    app.service = SimpleNamespace(busy=False, poll=lambda: None, close=lambda: None)
+    app.pending_settings = {}
+
+    def fail(_):
+        raise OSError("injected recovery failure")
+
+    monkeypatch.setattr(app, "_apply_settings_locked", fail)
+    stopped = threading.Event()
+    app.set_stop_callback(stopped.set)
+    thread = threading.Thread(target=app.monitor, daemon=True)
+    thread.start()
+    assert stopped.wait(2), "configuration error killed lifecycle monitor"
+    replay = WorkerApplication(tmp_path, priority="background")
+    assert "injected recovery failure" in replay.results[0]["payload"]["error"]
+
+
+def test_pre_capture_replay_does_not_start_unsolicited_capture() -> None:
+    from endstone_endkeep.plugin import EndKeepPlugin
+
+    calls = []
+    plugin = SimpleNamespace(
+        _pending_capture=False,
+        _pending_capture_scheduled_for=None,
+        _clock=None,
+        _capture=SimpleNamespace(start_capture=lambda **kwargs: calls.append(kwargs)),
+        _clear_pending_capture=lambda: None,
+        logger=SimpleNamespace(error=lambda _: None),
+    )
+    EndKeepPlugin._handle_repository_result(plugin, {"kind": "pre_capture", "raw_limits": {}})
+    assert not calls
 
 
 def test_detach_hands_off_without_cancelling_and_results_survive_exit(tmp_path: Path, monkeypatch) -> None:
@@ -55,7 +156,7 @@ def test_worker_exits_after_controller_process_dies(tmp_path: Path) -> None:
     finally:
         runtime = RepositoryWorkerClient._load_runtime(storage / "worker-runtime.json")
         if runtime is not None:
-            RepositoryWorkerClient(storage / "worker-runtime.json", runtime, desired_priority="background").shutdown()
+            _shutdown(RepositoryWorkerClient(storage / "worker-runtime.json", runtime, desired_priority="background"))
 
 
 def test_transient_ping_timeout_reconnects_same_worker(tmp_path: Path, monkeypatch) -> None:
@@ -79,7 +180,7 @@ def test_transient_ping_timeout_reconnects_same_worker(tmp_path: Path, monkeypat
         assert adopted.runtime.instance_id == client.runtime.instance_id
         assert attempts >= 2
     finally:
-        client.shutdown()
+        _shutdown(client)
 
 
 def test_second_worker_cannot_replace_runtime(tmp_path: Path) -> None:
@@ -106,7 +207,7 @@ def test_second_worker_cannot_replace_runtime(tmp_path: Path) -> None:
         assert (tmp_path / "worker-runtime.json").read_bytes() == before
         assert client.refresh()["worker"]["pid"] == client.runtime.pid
     finally:
-        client.shutdown()
+        _shutdown(client)
 
 
 def test_reload_adopts_busy_worker_and_stale_detach_cannot_release_it(tmp_path: Path) -> None:
@@ -123,21 +224,21 @@ def test_reload_adopts_busy_worker_and_stale_detach_cannot_release_it(tmp_path: 
         result = None
         while result is None and time.monotonic() < deadline:
             time.sleep(0.05)
-            result = second.poll()
+            result = _poll(second)
         assert result is not None
-        assert second.ack_result(result[0])
-        second.shutdown()
+        assert _ack(second, result[0])
+        _shutdown(second)
     finally:
         runtime = RepositoryWorkerClient._load_runtime(tmp_path / "worker-runtime.json")
         if runtime is not None:
-            RepositoryWorkerClient(tmp_path / "worker-runtime.json", runtime, desired_priority="background").shutdown()
+            _shutdown(RepositoryWorkerClient(tmp_path / "worker-runtime.json", runtime, desired_priority="background"))
 
 
 def test_stale_runtime_pid_identity_does_not_touch_unrelated_process(tmp_path: Path) -> None:
     from dataclasses import replace
 
     first = RepositoryWorkerClient.connect_or_start(tmp_path, priority="background")
-    first.shutdown()
+    _shutdown(first)
     RepositoryWorkerClient._wait_for_exit(first.runtime.pid, tmp_path / "worker-runtime.json")
     stale = replace(first.runtime, pid=os.getpid(), process_identity="different-process-start", port=1)
     (tmp_path / "worker-runtime.json").write_text(json.dumps(stale.to_dict()))
@@ -146,7 +247,7 @@ def test_stale_runtime_pid_identity_does_not_touch_unrelated_process(tmp_path: P
         assert second.runtime.pid != os.getpid()
         assert RepositoryWorkerClient._pid_alive(os.getpid())
     finally:
-        second.shutdown()
+        _shutdown(second)
 
 
 def test_unresponsive_worker_fails_bounded_without_replacement(tmp_path: Path, monkeypatch) -> None:
@@ -171,7 +272,7 @@ def test_unresponsive_worker_fails_bounded_without_replacement(tmp_path: Path, m
         assert (tmp_path / "worker-runtime.json").read_bytes() == saved
         assert first.refresh()["worker"]["pid"] == first.runtime.pid
     finally:
-        first.shutdown()
+        _shutdown(first)
 
 
 def test_detached_busy_worker_drains_before_exit(tmp_path: Path, monkeypatch) -> None:
@@ -227,21 +328,21 @@ def test_worker_starts_reconnects_and_runs_normal_verify(tmp_path: Path, monkeyp
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline and maintenance_result is None:
             time.sleep(0.05)
-            maintenance_result = second.poll()
+            maintenance_result = _poll(second)
 
         assert maintenance_result is not None
         maintenance_result_id, maintenance_payload = maintenance_result
         assert maintenance_payload["kind"] == "maintenance"
         assert maintenance_payload["request_id"] == request_id
         assert second.current_request_id == request_id
-        assert second.ack_result(maintenance_result_id) is True
+        assert _ack(second, maintenance_result_id) is True
 
         assert second.start_verify(deep=False)
         result = None
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline and result is None:
             time.sleep(0.05)
-            result = second.poll()
+            result = _poll(second)
 
         assert result is not None
         result_id, payload = result
@@ -250,7 +351,7 @@ def test_worker_starts_reconnects_and_runs_normal_verify(tmp_path: Path, monkeyp
 
         # Results are non-destructive until the controller confirms that it
         # handled them, so a short poll timeout cannot lose completion state.
-        repeated = second.poll()
+        repeated = _poll(second)
         assert repeated is not None
         assert repeated[0] == result_id
         assert repeated[1] == payload
@@ -271,8 +372,8 @@ def test_worker_starts_reconnects_and_runs_normal_verify(tmp_path: Path, monkeyp
         with pytest.raises(WorkerError, match="unacknowledged results"):
             adopted_new_plugin.shutdown()
 
-        assert adopted_new_plugin.ack_result(result_id) is True
-        assert third.poll() is None
+        assert _ack(adopted_new_plugin, result_id) is True
+        assert _poll(third) is None
         assert second.refresh()["job"]["state"] == "idle"
 
         if os.name == "posix":
@@ -286,7 +387,7 @@ def test_worker_starts_reconnects_and_runs_normal_verify(tmp_path: Path, monkeyp
                 desired_priority=current.priority,
             )
             try:
-                client.shutdown()
+                _shutdown(client)
             except Exception:
                 pass
             try:
@@ -306,13 +407,13 @@ def test_full_maintenance_honors_configured_deep_verify(tmp_path: Path) -> None:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline and result is None:
             time.sleep(0.05)
-            result = client.poll()
+            result = _poll(client)
 
         assert result is not None
         result_id, payload = result
         assert payload["kind"] == "maintenance"
         assert payload["maintenance"]["verify"]["deep"] is True
-        assert client.ack_result(result_id) is True
+        assert _ack(client, result_id) is True
     finally:
         current = RepositoryWorkerClient._load_runtime(storage / "worker-runtime.json")
         if current is not None:
@@ -322,7 +423,7 @@ def test_full_maintenance_honors_configured_deep_verify(tmp_path: Path) -> None:
                 desired_priority=current.priority,
             )
             try:
-                cleanup.shutdown()
+                _shutdown(cleanup)
             except Exception:
                 pass
             try:

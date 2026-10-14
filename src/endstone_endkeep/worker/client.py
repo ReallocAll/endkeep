@@ -240,6 +240,7 @@ class RepositoryWorkerClient:
             or self._status.get("job", {}).get("state") in ("running", "cancel_requested")
             or int(self._status.get("pending_results", 0)) > 0
             or bool(self._status.get("settings_deferred", False))
+            or bool(self._status.get("results_pending_sync", False))
         )
 
     @property

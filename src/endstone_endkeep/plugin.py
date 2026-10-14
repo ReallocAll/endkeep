@@ -520,6 +520,8 @@ class EndKeepPlugin(Plugin):
             return
 
         if kind == "pre_capture":
+            if not self._pending_capture:
+                return
             limits = result.get("raw_limits")
             if not isinstance(limits, dict):
                 self.logger.error("REPOSITORY FAILURE: pre-capture job returned no result")
