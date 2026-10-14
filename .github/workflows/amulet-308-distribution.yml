@@ -68,7 +68,12 @@ jobs:
               data = pyproject.read_text(encoding="utf-8")
               old = 'requires-python = ">=3.14"'
               assert data.count(old) == 1, source
-              pyproject.write_text(data.replace(old, 'requires-python = ">=3.12"'), encoding="utf-8")
+              data = data.replace(old, 'requires-python = ">=3.12"')
+              if source.name == "utils-src":
+                  extras = 'test-extras = ["numpy","pillow","pyside6"]'
+                  assert data.count(extras) == 1
+                  data = data.replace(extras, 'test-extras = []')
+              pyproject.write_text(data, encoding="utf-8")
           PY
           cp .github/scripts/amulet_leveldb_308_smoke.py leveldb-src/tests/test_endkeep_compat_308.py
           git -C utils-src diff --check
