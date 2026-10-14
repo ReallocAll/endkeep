@@ -8,6 +8,8 @@ from importlib.metadata import distribution
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.version import Version
 
 from endstone_endkeep.offline.cli import _default_repository, _new_progress_bar, _progress_write, build_parser
 
@@ -71,7 +73,14 @@ def test_cli_discovers_configured_repository(tmp_path: Path, monkeypatch: pytest
 
 
 def test_offline_requirements_preserve_tqdm() -> None:
-    assert "tqdm>=4.70,<5" in Path("requirements-offline.txt").read_text(encoding="utf-8")
+    lines = Path("requirements-offline.txt").read_text(encoding="utf-8").splitlines()
+    requirements = [Requirement(line) for line in lines if line.strip() and line.lstrip().startswith("tqdm")]
+    assert len(requirements) == 1
+
+    specifier = requirements[0].specifier
+    assert any(item.operator == ">=" and Version("4.70") <= Version(item.version) < Version("5") for item in specifier)
+    assert any(item.operator == "<" and Version(item.version) == Version("5") for item in specifier)
+    assert "5" not in specifier
 
 
 def test_offline_progress_uses_original_tqdm_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
