@@ -108,7 +108,7 @@ jobs:
           cp dist-utils/*.whl leveldb-src/deps/
           cd leveldb-src
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            export CIBW_ENVIRONMENT="PIP_FIND_LINKS=$(cygpath -w "$(pwd)/deps")"
+            export CIBW_ENVIRONMENT="PIP_FIND_LINKS=file:///$(cygpath -m "$(pwd)/deps")"
           else
             export CIBW_ENVIRONMENT="PIP_FIND_LINKS=/project/deps"
           fi
