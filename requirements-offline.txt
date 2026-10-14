@@ -4,4 +4,4 @@ amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-
 amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=718d5ff3887b4d848f811a49ab6a7fe3e0b1f863821029190714c4ea5362d9fc ; python_version == "3.13" and sys_platform == "linux" and platform_machine == "x86_64"
 amulet-leveldb @ https://github.com/ReallocAll/endkeep/releases/download/amulet-leveldb-3.0.7a0-compat-cp312-cp313/amulet_leveldb-3.0.7a0%2B0.g736228e.dirty-cp313-cp313-win_amd64.whl#sha256=28dc6037e3d16355a5120baba1ec61065d020f65500ca9de20d97deaaac0ab2f ; python_version == "3.13" and sys_platform == "win32" and platform_machine == "AMD64"
 zstandard>=0.23,<1
-tqdm>=4.70,<5
+tqdm>=4.70.1,<5
