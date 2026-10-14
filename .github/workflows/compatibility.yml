@@ -34,13 +34,13 @@ jobs:
         shell: bash
     steps:
       - name: Checkout EndKeep
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Checkout upstream Amulet 3.0.7a0 at verified commit
         if: matrix.python != '3.14'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Amulet-Team/Amulet-LevelDB
           ref: 736228e375e9f535b6522bd28168fc306a5354b9
