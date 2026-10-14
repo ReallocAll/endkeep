@@ -272,6 +272,7 @@ def test_unresponsive_worker_fails_bounded_without_replacement(tmp_path: Path, m
         assert (tmp_path / "worker-runtime.json").read_bytes() == saved
         assert first.refresh()["worker"]["pid"] == first.runtime.pid
     finally:
+        monkeypatch.undo()
         _shutdown(first)
 
 
