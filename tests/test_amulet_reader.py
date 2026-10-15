@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -40,3 +41,11 @@ def test_iter_visible_state_exhausts_in_repository_worker_thread(tmp_path: Path)
         result = executor.submit(_read_all, db_path).result(timeout=10)
 
     assert result == expected
+
+
+def test_missing_leveldb_raises_python_exception(tmp_path: Path) -> None:
+    import_module("endstone._python")
+    from amulet.leveldb import LevelDB, LevelDBException
+
+    with pytest.raises(LevelDBException, match="No database exists"):
+        LevelDB(str(tmp_path / "missing"), False)
