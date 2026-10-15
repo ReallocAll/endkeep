@@ -93,9 +93,9 @@ def test_middle_delete_replays_predecessor_once_and_cancels_transient_keys(tmp_p
     original_iter_state = RepositoryReader.iter_state
     replays: list[str | None] = []
 
-    def tracked_iter_state(self, manifest, *, snapshot=None):
+    def tracked_iter_state(self, manifest, *, snapshot=None, cancel_check=None):
         replays.append(snapshot)
-        return original_iter_state(self, manifest, snapshot=snapshot)
+        return original_iter_state(self, manifest, snapshot=snapshot, cancel_check=cancel_check)
 
     monkeypatch.setattr(RepositoryReader, "iter_state", tracked_iter_state)
     with RepositoryLock(store.repo_root):

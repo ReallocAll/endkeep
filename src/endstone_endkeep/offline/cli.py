@@ -129,6 +129,7 @@ def _verify_restore_dependencies(
     *,
     verbose: bool,
     show_progress: bool,
+    cancel_check: Callable[[], None] | None = None,
 ) -> None:
     """Deep-verify only the immutable objects required to restore one snapshot."""
 
@@ -151,7 +152,7 @@ def _verify_restore_dependencies(
                 f"logical_bytes={metadata.logical_bytes} compressed_bytes={metadata.compressed_bytes}",
                 enabled=verbose,
             )
-            objects.verify(metadata)
+            objects.verify(metadata, cancel_check=cancel_check)
             if bar is not None:
                 bar.update(1)
             _verbose(
@@ -391,7 +392,10 @@ def command_restore(
     preflight: Callable[[SnapshotNode], None] | None = None,
     space_guard: Callable[[], None] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> int:
+    if cancel_check is not None:
+        cancel_check()
     if destination.exists():
         raise FileExistsError(f"restore destination already exists: {destination}")
 
@@ -417,6 +421,7 @@ def command_restore(
             node,
             verbose=verbose,
             show_progress=show_progress,
+            cancel_check=cancel_check,
         )
 
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -427,7 +432,7 @@ def command_restore(
                 print(file=sys.stderr)
                 _stage(2, 5, "Restoring SIDECAR")
             with objects.open_logical(node.sidecar) as stream:
-                sidecar = extract_sidecar(stream, destination, strip_prefix=node.world_name)
+                sidecar = extract_sidecar(stream, destination, strip_prefix=node.world_name, cancel_check=cancel_check)
             _verbose(
                 f"SIDECAR files={sidecar.files} bytes={sidecar.bytes} elapsed={time.perf_counter() - started:.3f}s",
                 enabled=verbose,
@@ -437,7 +442,7 @@ def command_restore(
 
             if space_guard is not None:
                 space_guard()
-            state = reader.iter_state(manifest, snapshot=node.snapshot)
+            state = reader.iter_state(manifest, snapshot=node.snapshot, cancel_check=cancel_check)
             if show_progress:
                 print(file=sys.stderr)
                 _stage(3, 5, "Rebuilding LevelDB")
@@ -456,6 +461,8 @@ def command_restore(
 
             def on_written(amount: int) -> None:
                 nonlocal completed_records
+                if cancel_check is not None:
+                    cancel_check()
                 completed_records += amount
                 if rebuild_bar is not None:
                     rebuild_bar.update(amount)
@@ -464,7 +471,9 @@ def command_restore(
                 if space_guard is not None:
                     space_guard()
 
-            callback_enabled = rebuild_bar is not None or progress is not None or space_guard is not None
+            callback_enabled = (
+                rebuild_bar is not None or progress is not None or space_guard is not None or cancel_check is not None
+            )
             try:
                 records, value_bytes = write_fresh_leveldb(
                     destination / "db",
@@ -498,11 +507,18 @@ def command_restore(
                 if show_progress
                 else None
             )
+
+            def on_verified(amount: int) -> None:
+                if cancel_check is not None:
+                    cancel_check()
+                if verify_bar is not None:
+                    verify_bar.update(amount)
+
             try:
                 with iter_visible_state(destination / "db") as reopened:
                     reopened_stats = hash_state(
                         reopened,
-                        progress=verify_bar.update if verify_bar is not None else None,
+                        progress=on_verified if verify_bar is not None or cancel_check is not None else None,
                     )
             finally:
                 if verify_bar is not None:
@@ -525,7 +541,9 @@ def command_restore(
                 print(file=sys.stderr)
                 _stage(5, 5, "Flushing restored world")
             started = time.perf_counter()
-            _fsync_tree(destination)
+            if cancel_check is not None:
+                cancel_check()
+            _fsync_tree(destination, cancel_check=cancel_check)
             _verbose(
                 f"fsync destination={destination} elapsed={time.perf_counter() - started:.3f}s",
                 enabled=verbose,
@@ -544,12 +562,14 @@ def command_restore(
     return 0
 
 
-def _fsync_tree(root: Path) -> None:
+def _fsync_tree(root: Path, *, cancel_check: Callable[[], None] | None = None) -> None:
     directories: list[Path] = []
     for current, _dirnames, filenames in os.walk(root):
         current_path = Path(current)
         directories.append(current_path)
         for filename in filenames:
+            if cancel_check is not None:
+                cancel_check()
             # Windows' CRT _commit needs a writable handle to flush file data.
             # Do not skip fsync: failed flushes must abort recovery.
             flags = os.O_RDWR if os.name == "nt" else os.O_RDONLY
@@ -559,6 +579,8 @@ def _fsync_tree(root: Path) -> None:
             finally:
                 os.close(fd)
     for directory in reversed(directories):
+        if cancel_check is not None:
+            cancel_check()
         _fsync_directory(directory)
     _fsync_directory(root.parent)
 

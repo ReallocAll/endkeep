@@ -5,9 +5,8 @@ It stores snapshots in the directory configured by `storage.path` (default: `bac
 
 ## Getting started
 
-Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest),
-place it in `plugins/` and restart Endstone. Dependencies install automatically
-on the first start (internet access required).
+Follow the [installation instructions](../README.md#installation): Windows uses
+command-line installation; Linux also supports placing the wheel in `plugins/`.
 
 Check `/backup status`, take a snapshot with `/backup create`, and run
 `/backup maintenance` to process it. View recovery points with `/backup list`.
@@ -34,8 +33,8 @@ Commands are available to the console and operators by default (`endkeep.admin`)
 
 Deleting or rolling over a snapshot is a two-step operation: run the command
 to view what will change, then run `/backup confirm`. Preview information is
-cleared on reload or restart. Export, delete and rollover jobs cannot be
-cancelled once accepted. Make an independent copy before changing recovery history.
+cleared on reload or restart. Delete and rollover jobs can be cancelled before the atomic commit; exports
+can also be cancelled. Make an independent copy before changing recovery history.
 
 ## Automatic backups
 
@@ -71,3 +70,19 @@ is running. To recover when the server cannot start, use the standalone restore
 tool. Neither method overwrites your active world.
 
 Follow the [Recovery guide](recovery.md) before replacing a live world.
+
+## Server shutdown and plugin reload
+
+On server shutdown, the worker cancels background work at a safe checkpoint and
+exits. An atomic commit already in progress finishes first; uncommitted RAW
+snapshots remain available for the next startup.
+This also applies after an unexpected server process exit. Unacknowledged
+results are recovered on the next startup.
+
+Plugin disable allows 15 seconds for a newly enabled instance to reconnect.
+Running repository jobs continue through the handoff. If the plugin stays
+unloaded, the worker safely cancels its job and exits.
+
+Startup briefly retries an unavailable worker. If it remains alive but cannot
+respond, EndKeep refuses a second writer. Check `backups/worker.log` and keep
+the backup directory intact.

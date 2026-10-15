@@ -24,11 +24,15 @@ class SnapshotMutator:
         objects: ObjectStore,
         *,
         fault_hook: Callable[[str], None] | None = None,
+        cancel_check: Callable[[], None] | None = None,
+        phase: Callable[[str], None] | None = None,
     ) -> None:
         self.manifests = manifests
         self.objects = objects
         self.reader = RepositoryReader(objects)
         self.fault_hook = fault_hook
+        self.cancel_check = cancel_check
+        self.phase = phase
 
     def delete(self, manifest: RepositoryManifest, snapshot: str) -> RepositoryManifest:
         self._assert_current(manifest)
@@ -50,7 +54,9 @@ class SnapshotMutator:
             # key-wise merge avoids replaying the old chain twice and never
             # buffers the full world state, including when most keys disappear.
             with ExitStack() as stack:
-                predecessor = self.reader.iter_state(manifest, snapshot=previous.snapshot)
+                predecessor = self.reader.iter_state(
+                    manifest, snapshot=previous.snapshot, cancel_check=self.cancel_check
+                )
                 stack.callback(predecessor.close)
                 removed_stream = stack.enter_context(self.objects.open_logical(manifest.chain[index].object))
                 successor_stream = stack.enter_context(self.objects.open_logical(successor.object))
@@ -62,8 +68,10 @@ class SnapshotMutator:
                             iter_delta(removed_stream),
                             iter_delta(successor_stream),
                             stats,
+                            progress=(lambda _amount: self.cancel_check()) if self.cancel_check is not None else None,
                         ),
-                    )
+                    ),
+                    cancel_check=self.cancel_check,
                 )
             if delta_stats.records != stats.delta_records:
                 raise RuntimeError("bridge DELTA operation count does not match semantic diff stats")
@@ -73,7 +81,7 @@ class SnapshotMutator:
                 stats.current_records,
                 stats.current_value_bytes,
             )
-            self.objects.verify(object_meta)
+            self.objects.verify(object_meta, cancel_check=self.cancel_check)
 
             bridge = replace(successor, object=object_meta)
             updated = RepositoryManifest(
@@ -82,9 +90,16 @@ class SnapshotMutator:
             )
 
             # Replay the newly built chain, not the original successor delta.
-            replay = hash_state(self.reader.iter_state(updated, snapshot=successor.snapshot))
+            replay = hash_state(
+                self.reader.iter_state(updated, snapshot=successor.snapshot, cancel_check=self.cancel_check),
+                progress=(lambda _amount: self.cancel_check()) if self.cancel_check is not None else None,
+            )
             self._check_stats(successor, replay.sha256, replay.records, replay.value_bytes)
 
+        if self.cancel_check is not None:
+            self.cancel_check()
+        if self.phase is not None:
+            self.phase("commit")
         RepositoryTransaction(self.manifests, fault_hook=self.fault_hook).commit(updated)
         return updated
 
@@ -100,7 +115,7 @@ class SnapshotMutator:
             self.manifests,
             self.objects,
             fault_hook=self.fault_hook,
-        ).run(manifest, index)
+        ).run(manifest, index, cancel_check=self.cancel_check, phase=self.phase)
         # Rollover verifies the streamed BASE identity before publication.
         return updated
 

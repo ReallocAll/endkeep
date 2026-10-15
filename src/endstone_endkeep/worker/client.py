@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .process import process_identity
 from .protocol import PROTOCOL_VERSION, RuntimeInfo, package_version, receive_message, send_message
 
 
@@ -42,52 +43,105 @@ class RepositoryWorkerClient:
         self.runtime = runtime
         self.desired_priority = desired_priority
         self._status: dict[str, Any] = {"job": {"state": "idle"}}
+        self._controller_generation: int | None = None
 
     @classmethod
     def connect_or_start(cls, storage_root: Path, *, priority: str) -> RepositoryWorkerClient:
         storage_root.mkdir(parents=True, exist_ok=True)
         runtime_path = storage_root / "worker-runtime.json"
-
         existing = cls._load_runtime(runtime_path)
         if existing is not None:
-            if existing.protocol != PROTOCOL_VERSION:
-                if cls._pid_alive(existing.pid):
-                    raise WorkerError(
-                        f"repository worker protocol mismatch: {existing.protocol} != {PROTOCOL_VERSION}; "
-                        "restart the server after the active worker has exited"
-                    )
-                runtime_path.unlink(missing_ok=True)
-                existing = None
-
-        if existing is not None:
-            client = cls(runtime_path, existing, desired_priority=priority)
-            try:
-                response = client._rpc({"command": "ping"})
-            except Exception as exc:
-                if cls._pid_alive(existing.pid):
-                    raise WorkerError(
-                        f"repository worker pid {existing.pid} is alive but not responding; "
-                        "refusing to start a second worker"
-                    ) from exc
-                runtime_path.unlink(missing_ok=True)
-            else:
-                client._status = response["status"]
-                if Path(existing.storage_root).resolve() != storage_root.resolve():
-                    raise WorkerError("repository worker runtime points at a different storage root")
-
-                needs_restart = existing.priority != priority or existing.version != package_version()
-                can_restart = needs_restart and not client.busy
-                if can_restart:
-                    client.shutdown()
-                    cls._wait_for_exit(existing.pid, runtime_path)
-                else:
+            if Path(existing.storage_root).resolve() != storage_root.resolve():
+                raise WorkerError("repository worker runtime points at a different storage root")
+            if existing.protocol != PROTOCOL_VERSION and cls._runtime_alive(existing):
+                raise WorkerError(
+                    f"repository worker protocol mismatch: {existing.protocol} != {PROTOCOL_VERSION}; "
+                    "the previous worker must finish before starting another"
+                )
+            if existing.protocol == PROTOCOL_VERSION:
+                client = cls(runtime_path, existing, desired_priority=priority)
+                last_error: Exception | None = None
+                for attempt in range(4):
+                    try:
+                        response = client._rpc({"command": "ping"}, timeout=1.0)
+                    except WorkerError as exc:
+                        last_error = exc
+                        if not cls._runtime_alive(existing):
+                            break
+                        if attempt < 3:
+                            time.sleep(0.2)
+                        continue
+                    status = response["status"]
+                    worker = status.get("worker", {})
+                    if int(worker.get("pid", 0)) != existing.pid:
+                        raise WorkerError("repository runtime PID does not match the responding worker")
+                    if existing.process_start and process_identity(existing.pid) != existing.process_start:
+                        raise WorkerError("repository runtime process identity changed during reconnect")
+                    client._status = status
+                    if "controller_start" in worker:
+                        identity = process_identity(os.getpid())
+                        if identity is None:
+                            raise WorkerError("cannot identify the current controller process")
+                        try:
+                            response = client._rpc(
+                                {
+                                    "command": "attach",
+                                    "controller_pid": os.getpid(),
+                                    "controller_start": identity,
+                                    "controller_generation": worker.get("controller_generation"),
+                                },
+                                timeout=1.0,
+                            )
+                        except WorkerError as exc:
+                            if isinstance(exc, WorkerRejected):
+                                if str(exc) == "repository worker is exiting":
+                                    cls._wait_for_exit(existing.pid, runtime_path, process_start=existing.process_start)
+                                    break
+                                if str(exc) != "repository worker controller ownership changed":
+                                    raise
+                            last_error = exc
+                            if not cls._runtime_alive(existing):
+                                break
+                            if attempt < 3:
+                                time.sleep(0.2)
+                            continue
+                        client._status = response["status"]
+                        client._controller_generation = client._status["worker"].get("controller_generation")
+                    needs_restart = existing.priority != priority or existing.version != package_version()
+                    if needs_restart and not client.busy:
+                        client.shutdown()
+                        cls._wait_for_exit(existing.pid, runtime_path, process_start=existing.process_start)
+                        break
                     return client
+                else:
+                    raise WorkerError(
+                        f"repository worker pid {existing.pid} remains unresponsive after four RPC attempts; "
+                        f"identity={existing.process_start or 'legacy/unknown'}, last_error={last_error}; "
+                        "refusing concurrent repository access"
+                    ) from last_error
+                if cls._runtime_alive(existing):
+                    raise WorkerError(
+                        f"repository worker pid {existing.pid} is still active after reconnect attempts; "
+                        f"last_error={last_error}; refusing a second writer"
+                    ) from last_error
 
         return cls._start(storage_root, runtime_path, priority)
 
     @classmethod
+    def _runtime_alive(cls, runtime: RuntimeInfo) -> bool:
+        observed = process_identity(runtime.pid)
+        if runtime.process_start and observed is not None:
+            return observed == runtime.process_start
+        if runtime.process_start and sys.platform.startswith("linux"):
+            return False
+        return cls._pid_alive(runtime.pid)
+
+    @classmethod
     def _start(cls, storage_root: Path, runtime_path: Path, priority: str) -> RepositoryWorkerClient:
-        runtime_path.unlink(missing_ok=True)
+        identity = process_identity(os.getpid())
+        launch_id = uuid.uuid4().hex
+        if identity is None:
+            raise WorkerError("cannot identify the current controller process")
         env = os.environ.copy()
         env["PYTHONPATH"] = os.pathsep.join(sys.path)
         env.pop("LD_PRELOAD", None)
@@ -102,6 +156,12 @@ class RepositoryWorkerClient:
             str(runtime_path),
             "--priority",
             priority,
+            "--controller-pid",
+            str(os.getpid()),
+            "--controller-start",
+            identity,
+            "--launch-id",
+            launch_id,
         ]
         kwargs: dict[str, Any] = {
             "env": env,
@@ -120,19 +180,22 @@ class RepositoryWorkerClient:
             kwargs["stderr"] = subprocess.STDOUT
             process = subprocess.Popen(command, **kwargs)
 
-        threading.Thread(
-            target=process.wait,
-            name=f"endkeep-worker-reaper-{process.pid}",
-            daemon=True,
-        ).start()
+        if os.name != "nt":
+            threading.Thread(
+                target=process.wait,
+                name=f"endkeep-worker-reaper-{process.pid}",
+                daemon=True,
+            ).start()
 
         deadline = time.monotonic() + cls.START_TIMEOUT_SECONDS
         last_error: Exception | None = None
         while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise WorkerError(f"repository worker exited during startup with code {process.returncode}")
             runtime = cls._load_runtime(runtime_path)
-            if runtime is not None:
+            if process.poll() is not None and (runtime is None or runtime.launch_id != launch_id):
+                raise WorkerError(f"repository worker launcher exited during startup with code {process.returncode}")
+            if runtime is not None and runtime.launch_id == launch_id:
+                if runtime.process_start and process_identity(runtime.pid) != runtime.process_start:
+                    raise WorkerError("newly launched worker process identity cannot be verified")
                 client = cls(runtime_path, runtime, desired_priority=priority)
                 try:
                     response = client._rpc({"command": "ping"})
@@ -140,11 +203,22 @@ class RepositoryWorkerClient:
                     last_error = exc
                 else:
                     client._status = response["status"]
+                    client._controller_generation = client._status["worker"].get("controller_generation")
                     return client
             time.sleep(0.05)
 
         process.terminate()
-        raise WorkerError("repository worker did not become ready before the startup deadline") from last_error
+        try:
+            detail = log_path.read_text(encoding="utf-8", errors="replace")[-2500:]
+        except OSError:
+            detail = "<worker log unavailable>"
+        observed = cls._load_runtime(runtime_path)
+        raise WorkerError(
+            f"repository worker did not become ready before the startup deadline; "
+            f"child_pid={process.pid} runtime_exists={runtime_path.exists()} "
+            f"runtime_pid={observed.pid if observed else None} "
+            f"last_rpc_error={last_error!r}; worker log tail: {detail}"
+        ) from last_error
 
     @staticmethod
     def _load_runtime(path: Path) -> RuntimeInfo | None:
@@ -193,11 +267,15 @@ class RepositoryWorkerClient:
         return True
 
     @classmethod
-    def _wait_for_exit(cls, pid: int, runtime_path: Path) -> None:
+    def _wait_for_exit(cls, pid: int, runtime_path: Path, *, process_start: str = "") -> None:
         deadline = time.monotonic() + cls.START_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
-            if not cls._pid_alive(pid):
-                runtime_path.unlink(missing_ok=True)
+            observed = process_identity(pid)
+            if (
+                (process_start and observed is not None and observed != process_start)
+                or (process_start and observed is None and sys.platform.startswith("linux"))
+                or not cls._pid_alive(pid)
+            ):
                 return
             time.sleep(0.05)
         raise WorkerError(f"repository worker pid {pid} did not exit cleanly")
@@ -374,6 +452,10 @@ class RepositoryWorkerClient:
         self._rpc({"command": "shutdown"})
 
     def detach(self) -> None:
-        # The worker intentionally survives plugin reloads. The next plugin
-        # instance adopts the same runtime through worker-runtime.json.
-        return None
+        # A reload can reclaim the worker within the handoff window; the worker
+        # also watches the BDS process identity to detect an actual server exit.
+        try:
+            self._rpc({"command": "detach", "controller_generation": self._controller_generation}, timeout=0.5)
+        except WorkerRejected as exc:
+            if "unknown worker command" not in str(exc):
+                raise

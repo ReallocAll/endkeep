@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 
 from endstone_endkeep.logical.format import iter_base, iter_delta
@@ -21,6 +21,7 @@ class RepositoryReader:
         manifest: RepositoryManifest,
         *,
         snapshot: str | None = None,
+        cancel_check: Callable[[], None] | None = None,
     ) -> Iterator[tuple[bytes, bytes]]:
         if snapshot is None:
             target_index = len(manifest.chain) - 1
@@ -34,7 +35,7 @@ class RepositoryReader:
 
             for node in manifest.chain[1 : target_index + 1]:
                 delta_stream = stack.enter_context(self.objects.open_logical(node.object))
-                state = apply_delta(state, iter_delta(delta_stream))
+                state = apply_delta(state, iter_delta(delta_stream), cancel_check=cancel_check)
 
             yield from state
 

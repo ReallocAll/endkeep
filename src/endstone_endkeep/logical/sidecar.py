@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
@@ -23,6 +23,8 @@ def write_sidecar(
     stream: BinaryIO,
     raw_snapshot_root: Path,
     entries: Iterable[SnapshotEntry],
+    *,
+    cancel_check: Callable[[], None] | None = None,
 ) -> SidecarStats:
     stream.write(SIDECAR_MAGIC)
     ordered = sorted(entries, key=lambda entry: entry.path.as_posix())
@@ -31,6 +33,8 @@ def write_sidecar(
     total_bytes = 0
 
     for entry in ordered:
+        if cancel_check is not None:
+            cancel_check()
         path_text = entry.path.as_posix()
         if previous is not None and path_text <= previous:
             raise LogicalFormatError("SIDECAR paths must be strictly increasing")
@@ -43,6 +47,8 @@ def write_sidecar(
         with path.open("rb") as source:
             remaining = entry.snapshot_bytes
             while remaining:
+                if cancel_check is not None:
+                    cancel_check()
                 chunk = source.read(min(1024 * 1024, remaining))
                 if not chunk:
                     raise LogicalFormatError(f"SIDECAR source is short: {entry.path}")
@@ -65,6 +71,7 @@ def extract_sidecar(
     destination_root: Path,
     *,
     strip_prefix: str | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> SidecarStats:
     if _read_exact(stream, len(SIDECAR_MAGIC)) != SIDECAR_MAGIC:
         raise LogicalFormatError("invalid SIDECAR magic/version")
@@ -75,6 +82,8 @@ def extract_sidecar(
     total_bytes = 0
 
     while True:
+        if cancel_check is not None:
+            cancel_check()
         first = stream.read(1)
         if not first:
             break
@@ -117,6 +126,8 @@ def extract_sidecar(
         try:
             remaining = size
             while remaining:
+                if cancel_check is not None:
+                    cancel_check()
                 chunk = stream.read(min(1024 * 1024, remaining))
                 if not chunk:
                     raise LogicalFormatError(f"truncated SIDECAR file: {path_text!r}")

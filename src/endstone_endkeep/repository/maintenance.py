@@ -17,6 +17,7 @@ from .objects import ObjectStore
 from .progress import JobCancelled, ProgressTracker
 from .raw_queue import RawLimitResult, RawQueue
 from .reader import RepositoryReader
+from .recovery import StartupRecovery
 from .retention import RetentionDecision, select_retention
 from .rollover import Rollover, RolloverResult
 from .verify import RepositoryVerifier, VerifyReport
@@ -95,6 +96,7 @@ class RepositoryService:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="endkeep-repository")
         self._future: Future[RepositoryJobResult] | None = None
         self._closed = False
+        self._recover_after_cancel = False
 
     @property
     def busy(self) -> bool:
@@ -181,14 +183,13 @@ class RepositoryService:
             expected_generation,
             mode=operation,
         )
-        # SnapshotMutator owns its atomic commit sequence; it has no cooperative checkpoints.
-        self.tracker.update(cancelable=False)
         return accepted
 
     def _run_mutation(self, operation: str, snapshot: str, expected_generation: int) -> RepositoryJobResult:
         with RepositoryLock(self.repo_root):
             self.health.require_healthy()
-            self.tracker.update(stage="Validate", detail="checking repository generation", cancelable=False)
+            self.tracker.update(stage="Validate", detail="checking repository generation", cancelable=True)
+            self._checkpoint()
             manifest = self.manifests.load_current()
             if manifest is None:
                 raise ValueError("repository is empty")
@@ -198,12 +199,18 @@ class RepositoryService:
                 )
             # A previous interrupted commit may have left unpublished generation files.
             self.manifests.discard_unpublished()
-            self.tracker.update(stage="Rewrite", detail=f"{operation} {snapshot}", cancelable=False)
-            mutator = SnapshotMutator(self.manifests, self.objects)
+            self.tracker.update(stage="Rewrite", detail=f"{operation} {snapshot}", cancelable=True)
+
+            def phase(name: str) -> None:
+                self._checkpoint()
+                self.tracker.update(cancelable=name != "commit")
+
+            mutator = SnapshotMutator(self.manifests, self.objects, cancel_check=self._checkpoint, phase=phase)
             updated = (
                 mutator.delete(manifest, snapshot) if operation == "delete" else mutator.rollover(manifest, snapshot)
             )
-            self.tracker.update(stage="Finalize", detail="manifest committed", cancelable=False)
+            self.tracker.update(stage="Finalize", detail="manifest committed", cancelable=True)
+            self._checkpoint()
             result = {
                 "operation": operation,
                 "snapshot": snapshot,
@@ -220,7 +227,6 @@ class RepositoryService:
         if not re.fullmatch(r"[0-9]{8}-[0-9]{6}(?:-[0-9]{2})?", snapshot):
             raise ValueError("export requires an exact snapshot ID (YYYYMMDD-HHMMSS)")
         accepted = self._submit("export", ("Restore", "Finalize"), self._run_export, snapshot)
-        self.tracker.update(cancelable=False)
         return accepted
 
     def _run_export(self, snapshot: str) -> RepositoryJobResult:
@@ -268,14 +274,15 @@ class RepositoryService:
                 total=total,
                 unit="records",
                 detail="rebuilding a separate LevelDB",
-                cancelable=False,
+                cancelable=True,
             )
+            self._checkpoint()
 
         self.tracker.update(
             stage="Restore",
             snapshot=snapshot,
             detail="verifying and rebuilding a separate world",
-            cancelable=False,
+            cancelable=True,
         )
         # The shared restore owns the repository lock and verifies the restored
         # state digest; failures remove the newly created destination.
@@ -287,16 +294,13 @@ class RepositoryService:
             preflight=preflight,
             space_guard=space_guard,
             progress=progress,
+            cancel_check=self._checkpoint,
         )
-        self.tracker.update(stage="Finalize", detail="export complete", cancelable=False)
+        self.tracker.update(stage="Finalize", detail="export complete", cancelable=True)
         return RepositoryJobResult(kind="export", export={"snapshot": snapshot, "destination": str(destination)})
 
     def request_cancel(self) -> bool:
         if self._closed or not self.busy:
-            return False
-        # These operations have no cooperative checkpoints: never acknowledge a
-        # cancellation that cannot be honored.
-        if self.tracker.snapshot().kind in ("mutation", "export"):
             return False
         return self.tracker.request_cancel()
 
@@ -325,8 +329,15 @@ class RepositoryService:
 
     def _execute_job(self, kind: str, function, *args) -> RepositoryJobResult:
         try:
+            if self._recover_after_cancel:
+                with RepositoryLock(self.repo_root):
+                    StartupRecovery(self.storage_root, self.manifests, self.objects).run(
+                        preserve_committed_raw=self.health.failed
+                    )
+                self._recover_after_cancel = False
             return function(*args)
         except JobCancelled:
+            self._recover_after_cancel = True
             return RepositoryJobResult(kind="cancelled", cancelled_kind=kind)
         finally:
             self.tracker.finish()
@@ -349,6 +360,7 @@ class RepositoryService:
             "diff+compress": "Logicalize",
             "sidecar": "Sidecar",
             "commit": "Commit",
+            "committed": "Finalize",
         }.get(detail, "Logicalize")
         committing = stage == "Commit"
         self.tracker.update(
@@ -397,7 +409,7 @@ class RepositoryService:
 
     def _checked_verify(self, verifier: RepositoryVerifier, *, deep: bool, **kwargs) -> VerifyReport:
         try:
-            report = verifier.verify(deep=deep, **kwargs)
+            report = verifier.verify(deep=deep, cancel_check=self._checkpoint, **kwargs)
         except JobCancelled:
             raise
         except Exception as exc:

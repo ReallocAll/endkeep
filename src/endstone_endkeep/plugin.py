@@ -264,7 +264,10 @@ class EndKeepPlugin(Plugin):
         if capture is not None:
             capture.close()
         if repository is not None:
-            repository.detach()
+            try:
+                repository.detach()
+            except WorkerError as exc:
+                self.logger.warning(f"Could not notify repository worker of control handoff: {exc}")
 
     def _tick(self) -> None:
         capture = self._capture

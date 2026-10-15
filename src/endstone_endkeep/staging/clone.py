@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+from collections.abc import Callable
 from pathlib import Path
+
+from endstone_endkeep.repository.progress import JobCancelled
 
 _FICLONE = 0x40049409
 
@@ -12,7 +15,7 @@ class CloneError(RuntimeError):
     pass
 
 
-def _copy_reflink_or_bytes(source: Path, destination: Path) -> None:
+def _copy_reflink_or_bytes(source: Path, destination: Path, cancel_check: Callable[[], None] | None = None) -> None:
     source_fd = os.open(source, os.O_RDONLY | getattr(os, "O_BINARY", 0))
     destination_fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     try:
@@ -28,6 +31,8 @@ def _copy_reflink_or_bytes(source: Path, destination: Path) -> None:
 
         if not cloned:
             while True:
+                if cancel_check is not None:
+                    cancel_check()
                 chunk = os.read(source_fd, 1024 * 1024)
                 if not chunk:
                     break
@@ -47,6 +52,8 @@ def clone_world(
     world_name: str,
     work_root: Path,
     snapshot_id: str,
+    *,
+    cancel_check: Callable[[], None] | None = None,
 ) -> Path:
     source = raw_snapshot_root / world_name
     if not source.is_dir():
@@ -60,6 +67,8 @@ def clone_world(
 
     try:
         for current, dirnames, filenames in os.walk(source, followlinks=False):
+            if cancel_check is not None:
+                cancel_check()
             current_path = Path(current)
             relative = current_path.relative_to(source)
             destination_dir = destination / relative
@@ -72,12 +81,16 @@ def clone_world(
                     raise CloneError(f"raw snapshot contains directory symlink: {child}")
 
             for filename in filenames:
+                if cancel_check is not None:
+                    cancel_check()
                 source_file = current_path / filename
                 info = source_file.lstat()
                 if not stat.S_ISREG(info.st_mode):
                     raise CloneError(f"raw snapshot contains non-regular file: {source_file}")
-                _copy_reflink_or_bytes(source_file, destination_dir / filename)
+                _copy_reflink_or_bytes(source_file, destination_dir / filename, cancel_check)
         return destination
+    except JobCancelled:
+        raise
     except Exception:
         shutil.rmtree(job_root, ignore_errors=True)
         raise
