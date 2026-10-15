@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-15
+
+### Fixed
+- Stop repository workers after normal or unexpected BDS exit, safely cancelling active jobs and preserving recoverable RAW snapshots.
+- Keep active maintenance through plugin reload and recover durable results after restart.
+- Reject stale process ownership and concurrent writers while retrying transient worker RPC failures.
+
+### Changed
+- Use SHA256-pinned Amulet-LevelDB 3.0.8a1 compatibility Wheels for Python 3.12–3.15.
+- Install the Wheel in the server Python environment on Windows; Linux supports both command-line and `plugins/` installation.
+
+### Notes
+- Python 3.15 may need compiler tools for Zstandard. For Linux `plugins/` installation, install Zstandard in the server Python environment first.
+
 ## [0.3.1] - 2026-10-10
 
 ### Added

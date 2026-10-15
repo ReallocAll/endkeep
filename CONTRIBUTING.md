@@ -2,7 +2,7 @@
 
 Bug reports, fixes and documentation improvements are welcome.
 
-EndKeep requires Endstone 0.11 and Python 3.12–3.14.
+EndKeep requires Endstone 0.11 and Python 3.12–3.15.
 To work on the project:
 
 ```sh
