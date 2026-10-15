@@ -15,6 +15,7 @@ from endstone_endkeep.staging.metadata import RawSnapshotMetadata, load_raw_snap
 
 from .manifest import ManifestStore, RepositoryManifest, SnapshotNode, snapshot_order_key
 from .objects import ObjectMetadata, ObjectStore
+from .progress import JobCancelled
 from .reader import RepositoryReader
 from .transaction import RepositoryTransaction
 
@@ -89,10 +90,11 @@ class Logicalizer:
                 raise ValueError(f"raw snapshot {raw.snapshot_id} is not newer than repository tail {tail.snapshot}")
 
         self._report(progress, "clone", None, None, None, raw.snapshot_id)
-        clone_world(raw.path, raw.manifest.world_name, self.work_root, raw.snapshot_id)
+        clone_world(raw.path, raw.manifest.world_name, self.work_root, raw.snapshot_id, cancel_check=cancel_check)
         self._checkpoint(cancel_check)
 
         db_path = self.work_root / raw.snapshot_id / raw.manifest.world_name / "db"
+        cancelled = False
         try:
             if current_manifest is None:
                 node, diff_counts = self._create_base(
@@ -124,8 +126,14 @@ class Logicalizer:
             new_manifest = RepositoryManifest(generation=generation, chain=tuple(new_chain))
             self._report(progress, "commit", None, None, None, raw.snapshot_id)
             RepositoryTransaction(self.manifests).commit(new_manifest)
+            self._report(progress, "committed", None, None, None, raw.snapshot_id)
+            self._checkpoint(cancel_check)
+        except JobCancelled:
+            cancelled = True
+            raise
         finally:
-            remove_processing_clone(self.work_root, raw.snapshot_id)
+            if not cancelled:
+                remove_processing_clone(self.work_root, raw.snapshot_id)
 
         raw_deleted = True
         try:
@@ -171,7 +179,8 @@ class Logicalizer:
                     stream,
                     current,
                     progress=advance if progress is not None or cancel_check is not None else None,
-                )
+                ),
+                cancel_check=cancel_check,
             )
         assert isinstance(stats, BaseStats)
         self._checkpoint(cancel_check)
@@ -205,7 +214,7 @@ class Logicalizer:
         cancel_check: CancelCheck | None,
     ) -> tuple[SnapshotNode, tuple[int, int, int, int]]:
         stats = DiffStats()
-        previous = self.reader.iter_state(current_manifest)
+        previous = self.reader.iter_state(current_manifest, cancel_check=cancel_check)
         previous_total = current_manifest.chain[-1].records
 
         def advance(_amount: int) -> None:
@@ -238,7 +247,8 @@ class Logicalizer:
                         stats,
                         progress=advance if progress is not None or cancel_check is not None else None,
                     ),
-                )
+                ),
+                cancel_check=cancel_check,
             )
         assert isinstance(delta_stats, DeltaStats)
         if delta_stats.records != stats.delta_records:
@@ -275,7 +285,8 @@ class Logicalizer:
         self._report(progress, "sidecar", None, None, None, raw.snapshot_id)
         self._checkpoint(cancel_check)
         metadata, stats = self.objects.create(
-            lambda stream: write_sidecar(stream, raw.path, raw.manifest.sidecar_entries)
+            lambda stream: write_sidecar(stream, raw.path, raw.manifest.sidecar_entries, cancel_check=cancel_check),
+            cancel_check=cancel_check,
         )
         self._checkpoint(cancel_check)
         return metadata, stats

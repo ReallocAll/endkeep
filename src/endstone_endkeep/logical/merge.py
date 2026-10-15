@@ -17,13 +17,20 @@ _SENTINEL = object()
 def apply_delta(
     state: Iterable[tuple[bytes, bytes]],
     delta: Iterable[DeltaOperation],
+    *,
+    cancel_check: Callable[[], None] | None = None,
 ) -> Iterator[tuple[bytes, bytes]]:
     state_it = iter(state)
     delta_it = iter(delta)
     state_item = next(state_it, _SENTINEL)
     operation = next(delta_it, _SENTINEL)
+    consumed = 0
 
     while state_item is not _SENTINEL or operation is not _SENTINEL:
+        if cancel_check is not None:
+            consumed += 1
+            if consumed % 16384 == 0:
+                cancel_check()
         if operation is _SENTINEL:
             yield state_item
             state_item = next(state_it, _SENTINEL)

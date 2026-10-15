@@ -156,7 +156,9 @@ class ObjectStore:
         if objects_created or incoming_created:
             self._fsync_directory(self.repo_root)
 
-    def create(self, builder: Callable[[BinaryIO], _T]) -> tuple[ObjectMetadata, _T]:
+    def create(
+        self, builder: Callable[[BinaryIO], _T], *, cancel_check: Callable[[], None] | None = None
+    ) -> tuple[ObjectMetadata, _T]:
         """Stream one canonical logical object, verify it, then publish it immutably."""
 
         self.prepare()
@@ -170,13 +172,13 @@ class ObjectStore:
             result = builder(writer)
             metadata = writer.finish()
             self.fault_hook("after_object_fsync")
-            self.verify_path(incoming, metadata)
+            self.verify_path(incoming, metadata, cancel_check=cancel_check)
 
             target = self.path_for(metadata.logical_sha256)
             shard_created = not target.parent.exists()
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                existing = self._inspect_path(target)
+                existing = self._inspect_path(target, cancel_check=cancel_check)
                 if existing[0] != metadata.logical_sha256 or existing[2] != metadata.logical_bytes:
                     raise ObjectStoreError(
                         "logical object path contains different logical content; refusing to overwrite immutable object"
@@ -223,12 +225,14 @@ class ObjectStore:
             reader.close()
             source.close()
 
-    def verify(self, metadata: ObjectMetadata) -> None:
-        self.verify_path(self.path_for(metadata.logical_sha256), metadata)
+    def verify(self, metadata: ObjectMetadata, *, cancel_check: Callable[[], None] | None = None) -> None:
+        self.verify_path(self.path_for(metadata.logical_sha256), metadata, cancel_check=cancel_check)
 
     @classmethod
-    def verify_path(cls, path: Path, metadata: ObjectMetadata) -> None:
-        actual = cls._inspect_path(path)
+    def verify_path(
+        cls, path: Path, metadata: ObjectMetadata, *, cancel_check: Callable[[], None] | None = None
+    ) -> None:
+        actual = cls._inspect_path(path, cancel_check=cancel_check)
         expected = (
             metadata.logical_sha256,
             metadata.compressed_sha256,
@@ -239,7 +243,7 @@ class ObjectStore:
             raise ObjectStoreError(f"object verification failed for {path}")
 
     @staticmethod
-    def _inspect_path(path: Path) -> tuple[str, str, int, int]:
+    def _inspect_path(path: Path, *, cancel_check: Callable[[], None] | None = None) -> tuple[str, str, int, int]:
         compressed_hasher = hashlib.sha256()
         logical_hasher = hashlib.sha256()
         compressed_bytes = 0
@@ -247,6 +251,8 @@ class ObjectStore:
 
         with path.open("rb") as source:
             while True:
+                if cancel_check is not None:
+                    cancel_check()
                 chunk = source.read(1024 * 1024)
                 if not chunk:
                     break
@@ -257,6 +263,8 @@ class ObjectStore:
             reader = zstd.ZstdDecompressor().stream_reader(source)
             try:
                 while True:
+                    if cancel_check is not None:
+                        cancel_check()
                     chunk = reader.read(1024 * 1024)
                     if not chunk:
                         break

@@ -64,13 +64,14 @@ class Rollover:
             if cancel_check is not None:
                 cancel_check()
 
-        state = self.reader.iter_state(manifest, snapshot=target.snapshot)
+        state = self.reader.iter_state(manifest, snapshot=target.snapshot, cancel_check=cancel_check)
         object_meta, stats = self.objects.create(
             lambda stream: write_base(
                 stream,
                 state,
                 progress=advance if progress is not None or cancel_check is not None else None,
-            )
+            ),
+            cancel_check=cancel_check,
         )
         assert isinstance(stats, BaseStats)
 

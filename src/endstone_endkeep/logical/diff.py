@@ -121,6 +121,8 @@ def compose_delta_pair(
     first: Iterable[DeltaOperation],
     second: Iterable[DeltaOperation],
     stats: DiffStats,
+    *,
+    progress: Callable[[int], None] | None = None,
 ) -> Iterator[DeltaOperation]:
     """Build the minimal previous-to-successor DELTA in one bounded-memory pass.
 
@@ -136,8 +138,13 @@ def compose_delta_pair(
     first_item = next(first_it, missing)
     second_item = next(second_it, missing)
     last_key: bytes | None = None
+    processed = 0
 
     while previous_item is not missing or first_item is not missing or second_item is not missing:
+        if progress is not None:
+            processed += 1
+            if processed % 16384 == 0:
+                progress(16384)
         keys = []
         if previous_item is not missing:
             keys.append(previous_item[0])

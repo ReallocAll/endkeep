@@ -39,6 +39,7 @@ class RepositoryVerifier:
         deep: bool = False,
         object_progress: ObjectProgressCallback | None = None,
         state_progress: StateProgressCallback | None = None,
+        cancel_check: Callable[[], None] | None = None,
     ) -> VerifyReport:
         manifest = self.manifests.load_current()
         if manifest is None:
@@ -54,6 +55,7 @@ class RepositoryVerifier:
                 manifest,
                 object_progress=object_progress,
                 state_progress=state_progress,
+                cancel_check=cancel_check,
             )
 
         return VerifyReport(
@@ -88,6 +90,7 @@ class RepositoryVerifier:
         *,
         object_progress: ObjectProgressCallback | None,
         state_progress: StateProgressCallback | None,
+        cancel_check: Callable[[], None] | None,
     ) -> None:
         checked: set[str] = set()
         for node in manifest.chain:
@@ -97,7 +100,7 @@ class RepositoryVerifier:
 
                 if object_progress is not None:
                     object_progress(node, role, metadata, 0, 1)
-                self.objects.verify(metadata)
+                self.objects.verify(metadata, cancel_check=cancel_check)
                 if object_progress is not None:
                     object_progress(node, role, metadata, 1, 1)
                 checked.add(metadata.logical_sha256)
@@ -112,6 +115,8 @@ class RepositoryVerifier:
                 current_node: SnapshotNode = node,
             ) -> None:
                 nonlocal completed_records
+                if cancel_check is not None:
+                    cancel_check()
                 completed_records += amount
                 if state_progress is not None:
                     state_progress(
@@ -121,8 +126,8 @@ class RepositoryVerifier:
                     )
 
             stats = hash_state(
-                self.reader.iter_state(manifest, snapshot=node.snapshot),
-                progress=advance_state if state_progress is not None else None,
+                self.reader.iter_state(manifest, snapshot=node.snapshot, cancel_check=cancel_check),
+                progress=advance_state if state_progress is not None or cancel_check is not None else None,
             )
             if (
                 stats.sha256 != node.state_sha256
