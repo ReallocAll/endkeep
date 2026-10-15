@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 from collections import deque
 from dataclasses import asdict
@@ -21,9 +22,11 @@ from endstone_endkeep.repository.maintenance import RepositoryService
 from endstone_endkeep.repository.progress import ProgressTracker
 from endstone_endkeep.repository.recovery import StartupRecovery
 
+from .process import process_identity
 from .protocol import PROTOCOL_VERSION, RuntimeInfo, package_version, receive_message, send_message
 
 _IDLE_EXIT_SECONDS = 300.0
+_HANDOFF_GRACE_SECONDS = 15.0
 _PRIORITY_NICE = {
     "conservative": 15,
     "background": 8,
@@ -38,9 +41,16 @@ class _ThreadingServer(socketserver.ThreadingTCPServer):
 
 
 class WorkerApplication:
-    def __init__(self, storage_root: Path, *, priority: str) -> None:
+    def __init__(
+        self, storage_root: Path, *, priority: str, controller_pid: int = 0, controller_start: str = ""
+    ) -> None:
         self.storage_root = storage_root
         self.priority = priority
+        self.controller_pid = controller_pid
+        self.controller_start = controller_start
+        self.controller_generation = 0
+        self.detached_until: float | None = None
+        self._results_path = storage_root / "worker-results.json"
         self.tracker = ProgressTracker()
         self.service: RepositoryService | None = None
         self.settings: dict[str, Any] | None = None
@@ -48,10 +58,13 @@ class WorkerApplication:
         self.results: deque[dict[str, Any]] = deque()
         self._next_result_id = 1
         self._last_acked_result_id = 0
+        self._results_dirty = False
+        self._load_results()
         self._active_request_id: str | None = None
         self._management_requests: dict[str, tuple[str, ...]] = {}
         self.last_contact = time.monotonic()
         self.shutdown_requested = False
+        self._stopping = False
         self._lock = threading.RLock()
         self._stop_callback = lambda: None
 
@@ -62,7 +75,39 @@ class WorkerApplication:
         with self._lock:
             self.last_contact = time.monotonic()
             command = request.get("command")
+            if self._stopping and command not in ("ping", "status", "poll", "ack_result", "shutdown"):
+                return {"ok": False, "error": "repository worker is exiting"}
             if command == "ping":
+                return {"ok": True, "status": self._status_locked()}
+            if command == "attach":
+                if request.get("controller_generation") != self.controller_generation:
+                    return {"ok": False, "error": "repository worker controller ownership changed"}
+                pid = int(request.get("controller_pid", 0))
+                started = str(request.get("controller_start", ""))
+                if not started or process_identity(pid) != started:
+                    return {"ok": False, "error": "controller process identity cannot be verified"}
+                controller_alive = bool(self.controller_start) and (
+                    process_identity(self.controller_pid) == self.controller_start
+                )
+                if self.controller_start and not controller_alive:
+                    self._request_stop_locked()
+                    return {"ok": False, "error": "repository worker is exiting"}
+                if (
+                    self.controller_pid
+                    and (pid, started) != (self.controller_pid, self.controller_start)
+                    and controller_alive
+                ):
+                    return {"ok": False, "error": "repository worker belongs to a live controller"}
+                self.controller_pid = pid
+                self.controller_start = started
+                self.controller_generation += 1
+                self.detached_until = None
+                self.shutdown_requested = False
+                return {"ok": True, "status": self._status_locked()}
+            if command == "detach":
+                if request.get("controller_generation") != self.controller_generation:
+                    return {"ok": False, "error": "repository worker controller ownership changed"}
+                self.detached_until = time.monotonic() + _HANDOFF_GRACE_SECONDS
                 return {"ok": True, "status": self._status_locked()}
             if command == "configure":
                 return self._configure_locked(request.get("settings"))
@@ -117,6 +162,7 @@ class WorkerApplication:
                 elif self.results and int(self.results[0]["id"]) == result_id:
                     self.results.popleft()
                     self._last_acked_result_id = result_id
+                    self._results_dirty = True
                     accepted = True
                 else:
                     accepted = False
@@ -265,7 +311,14 @@ class WorkerApplication:
 
     def _ready_for_new_job_locked(self) -> bool:
         service = self.service
-        return service is not None and not service.busy and not self.results and self.pending_settings is None
+        return (
+            not self.shutdown_requested
+            and not self._stopping
+            and service is not None
+            and not service.busy
+            and not self.results
+            and self.pending_settings is None
+        )
 
     def _require_service(self) -> RepositoryService:
         if self.service is None:
@@ -280,6 +333,9 @@ class WorkerApplication:
                 "pid": os.getpid(),
                 "priority": self.priority,
                 "alive": True,
+                "controller_pid": self.controller_pid,
+                "controller_start": self.controller_start,
+                "controller_generation": self.controller_generation,
             },
             "job": self.tracker.snapshot().to_dict(),
             "job_occupied": service is not None and service.busy,
@@ -327,6 +383,27 @@ class WorkerApplication:
         }
 
     def monitor(self) -> None:
+        try:
+            self._monitor()
+        except Exception:
+            with self._lock:
+                self.shutdown_requested = True
+                self._stopping = True
+            try:
+                traceback.print_exc()
+            finally:
+                self._stop_callback()
+
+    def _request_stop_locked(self) -> None:
+        self.shutdown_requested = True
+        self._stopping = True
+        if self.service is not None:
+            self.service.request_cancel()
+
+    def _monitor(self) -> None:
+        next_owner_check = 0.0
+        last_owner: tuple[int, str] | None = None
+        controller_gone = False
         while True:
             time.sleep(0.1)
             with self._lock:
@@ -354,27 +431,93 @@ class WorkerApplication:
                     service = self.service
 
                 busy = service is not None and service.busy
-                idle_too_long = time.monotonic() - self.last_contact >= _IDLE_EXIT_SECONDS
-                should_stop = self.shutdown_requested or (idle_too_long and not busy and not self.results)
+                now = time.monotonic()
+                owner = (self.controller_pid, self.controller_start)
+                if now >= next_owner_check or owner != last_owner:
+                    controller_gone = (
+                        bool(self.controller_start) and process_identity(self.controller_pid) != self.controller_start
+                    )
+                    last_owner = owner
+                    next_owner_check = now + 1.0
+                dirty_ack = (list(self.results), self._last_acked_result_id) if self._results_dirty else None
+                handoff_expired = self.detached_until is not None and now >= self.detached_until
+                idle_too_long = now - self.last_contact >= _IDLE_EXIT_SECONDS
+                if controller_gone or handoff_expired:
+                    self._request_stop_locked()
+                should_stop = not busy and (
+                    self.shutdown_requested or controller_gone or handoff_expired or idle_too_long
+                )
+                if should_stop:
+                    self._stopping = True
+            if dirty_ack is not None:
+                results, acked = dirty_ack
+                self._save_results(results, acked)
+                with self._lock:
+                    if acked == self._last_acked_result_id and results == list(self.results):
+                        self._results_dirty = False
             if should_stop:
                 self._stop_callback()
                 return
 
     def _queue_result(self, payload: dict[str, Any]) -> None:
-        self.results.append(
-            {
-                "id": self._next_result_id,
-                "payload": payload,
-            }
-        )
+        result = {"id": self._next_result_id, "payload": payload}
+        self.results.append(result)
         self._next_result_id += 1
+        self._results_dirty = True
+        self._save_results(list(self.results), self._last_acked_result_id)
+        self._results_dirty = False
+
+    def _load_results(self) -> None:
+        try:
+            data = json.loads(self._results_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            raise ValueError("invalid persisted repository worker results")
+        results = data["results"]
+        if any(not isinstance(item, dict) or "id" not in item or "payload" not in item for item in results):
+            raise ValueError("invalid persisted repository worker result envelope")
+        self.results = deque(results)
+        self._last_acked_result_id = int(data.get("last_acked", 0))
+        self._next_result_id = max([self._last_acked_result_id, *(int(item["id"]) for item in results)]) + 1
+
+    def _save_results(self, results: list[dict[str, Any]], last_acked: int) -> None:
+        self._results_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._results_path.with_name(f".{self._results_path.name}.{os.getpid()}.tmp")
+        try:
+            with tmp.open("w", encoding="utf-8") as stream:
+                json.dump({"results": results, "last_acked": last_acked}, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, self._results_path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def close(self) -> None:
         with self._lock:
             service = self.service
-            self.service = None
-        if service is not None:
-            service.close()
+            self._stopping = True
+        try:
+            if service is not None:
+                service.close()
+                try:
+                    result = service.poll()
+                except Exception as exc:
+                    payload = {"kind": "error", "error": str(exc)}
+                else:
+                    payload = asdict(result) if result is not None else None
+                if payload is not None:
+                    with self._lock:
+                        if self._active_request_id is not None:
+                            payload["request_id"] = self._active_request_id
+                        self._queue_result(payload)
+                        self._active_request_id = None
+        finally:
+            with self._lock:
+                self.service = None
+                if self._results_dirty:
+                    self._save_results(list(self.results), self._last_acked_result_id)
+                    self._results_dirty = False
 
 
 class _RequestHandler(socketserver.BaseRequestHandler):
@@ -472,6 +615,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="EndKeep repository worker")
     parser.add_argument("--storage-root", required=True)
     parser.add_argument("--runtime-file", required=True)
+    parser.add_argument("--controller-pid", type=int, default=0)
+    parser.add_argument("--controller-start", default="")
+    parser.add_argument("--launch-id", required=True)
     parser.add_argument(
         "--priority",
         required=True,
@@ -487,9 +633,20 @@ def main(argv: list[str] | None = None) -> int:
     storage_root.mkdir(parents=True, exist_ok=True)
     _apply_priority(args.priority)
 
+    with RepositoryLock(storage_root / "worker-owner"):
+        return _run_worker(
+            storage_root, runtime_file, args.priority, args.controller_pid, args.controller_start, args.launch_id
+        )
+
+
+def _run_worker(
+    storage_root: Path, runtime_file: Path, priority: str, controller_pid: int, controller_start: str, launch_id: str
+) -> int:
     token = secrets.token_hex(32)
     instance_id = uuid.uuid4().hex
-    app = WorkerApplication(storage_root, priority=args.priority)
+    app = WorkerApplication(
+        storage_root, priority=priority, controller_pid=controller_pid, controller_start=controller_start
+    )
 
     with _ThreadingServer(("127.0.0.1", 0), _RequestHandler) as server:
         server.app = app  # type: ignore[attr-defined]
@@ -503,7 +660,9 @@ def main(argv: list[str] | None = None) -> int:
             token=token,
             instance_id=instance_id,
             storage_root=str(storage_root),
-            priority=args.priority,
+            priority=priority,
+            process_start=process_identity(os.getpid()) or "",
+            launch_id=launch_id,
         )
         _write_runtime(runtime_file, runtime)
 
@@ -512,6 +671,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             server.serve_forever(poll_interval=0.2)
         finally:
-            app.close()
-            _remove_runtime(runtime_file, instance_id)
+            try:
+                app.close()
+            finally:
+                _remove_runtime(runtime_file, instance_id)
     return 0

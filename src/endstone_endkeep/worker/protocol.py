@@ -28,6 +28,8 @@ class RuntimeInfo:
     instance_id: str
     storage_root: str
     priority: str
+    process_start: str = ""
+    launch_id: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -43,6 +45,8 @@ class RuntimeInfo:
             instance_id=str(raw["instance_id"]),
             storage_root=str(raw["storage_root"]),
             priority=str(raw["priority"]),
+            process_start=str(raw.get("process_start", "")),
+            launch_id=str(raw.get("launch_id", "")),
         )
 
     @classmethod
