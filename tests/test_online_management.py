@@ -60,7 +60,6 @@ def test_worker_mutation_preview_and_generation_guard(tmp_path: Path) -> None:
         assert plan["detail"] == f"replace BASE with {S2}"
         assert plan["remaining"] == 1
         assert service.start_mutation("delete", S1, plan["generation"])
-        assert service.request_cancel() is False
 
         # A repository task cannot be accepted while another job is running.
         assert (
@@ -149,7 +148,6 @@ def test_export_rejects_unsafe_and_existing_destinations(tmp_path: Path) -> None
                 service.start_export(invalid)
 
         assert service.start_export(S2)
-        assert service.request_cancel() is False
         assert _result(service).kind == "export"
         assert service.start_export(S2)
         with pytest.raises(FileExistsError, match="already exists"):

@@ -44,10 +44,12 @@ def test_failed_deep_verify_persists_across_worker_restart(tmp_path: Path, monke
 
     original_verify = RepositoryVerifier.verify
 
-    def fail_verify(self, *, deep=False, object_progress=None, state_progress=None):
+    def fail_verify(self, *, deep=False, object_progress=None, state_progress=None, cancel_check=None):
         if deep:
             raise VerificationError("injected invalid state")
-        return original_verify(self, deep=deep, object_progress=object_progress, state_progress=state_progress)
+        return original_verify(
+            self, deep=deep, object_progress=object_progress, state_progress=state_progress, cancel_check=cancel_check
+        )
 
     service = _service(storage)
     try:
@@ -141,7 +143,7 @@ def test_full_verification_failure_blocks_next_maintenance(tmp_path: Path, monke
     build_fixture(storage)
     service = _service(storage)
 
-    def fail_verify(self, *, deep=False, object_progress=None, state_progress=None):
+    def fail_verify(self, *, deep=False, object_progress=None, state_progress=None, cancel_check=None):
         raise VerificationError("injected FULL verification failure")
 
     try:

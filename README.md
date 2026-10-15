@@ -10,9 +10,25 @@ without storing a complete world copy each time, and lets you restore an earlier
 
 Requires **Endstone 0.11** and **Python 3.12–3.15**.
 
-1. Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
-2. Place it in the server's `plugins/` directory.
-3. Restart Endstone. Dependencies install automatically (internet access required).
+Download the plugin `.whl` from [Releases](https://github.com/ReallocAll/endkeep/releases/latest).
+Installation requires internet access.
+
+**Windows:** stop Endstone, activate the Python environment used to run it,
+and install the downloaded wheel (replace `VERSION` with its actual version):
+
+```sh
+python -m pip install --upgrade "./endstone_endkeep-VERSION-py3-none-any.whl"
+```
+
+Remove any EndKeep wheel from `plugins/`, then restart Endstone.
+Use the same steps for updates.
+
+**Linux:** use the command above, or place the wheel in `plugins/` and restart
+Endstone to install dependencies automatically.
+
+Python 3.15 currently requires compiler tools to build Zstandard.
+Before using the Linux `plugins/` method with Python 3.15, install it in the
+server's Python environment: `python -m pip install "zstandard>=0.23,<1"`.
 
 See [Using EndKeep](docs/using-endkeep.md) for commands and configuration.
 

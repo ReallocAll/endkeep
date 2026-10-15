@@ -6,7 +6,8 @@ repository. These checks complement automated tests.
 ## Installation and backup
 
 1. Install the release wheel on supported platforms and Python versions.
-   Confirm the plugin and its dependencies load without manual setup.
+   Use command-line installation on Windows; check both installation methods on Linux.
+   Confirm the plugin and its dependencies load on unmodified Endstone.
 2. Capture multiple snapshots while BDS is running, process maintenance,
    and run `/backup verify deep`.
 3. Check backup scheduling, retention, low-disk-space protection and reload.
